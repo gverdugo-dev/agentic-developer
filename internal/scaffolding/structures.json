@@ -1,0 +1,50 @@
+{
+    "harness": {
+        "claude": {
+            "structures": {
+                "skill": [
+                    "{skill_name}/SKILL.md",
+                    "{skill_name}/references/",
+                    "{skill_name}/assets/",
+                    "{skill_name}/scripts/"
+                ],
+                "plugin": [
+                    "{plugin_name}/.claude-plugin/plugin.json",
+                    "{plugin_name}/commands/",
+                    "{plugin_name}/agents/",
+                    "{plugin_name}/skills/",
+                    "{plugin_name}/hooks/"
+                ],
+                "pluginMarketplace": [
+                    "{marketplace_name}/.claude-plugin/marketplace.json",
+                    "{marketplace_name}/plugins/"
+                ]
+            }
+        },
+        "codex": {
+            "structures": {
+                "skill": [
+                    "{skill_name}/SKILL.md",
+                    "{skill_name}/references/",
+                    "{skill_name}/assets/",
+                    "{skill_name}/scripts/",
+                    "{skill_name}/agents/"
+                ]
+            }
+        },
+        "opencode": {
+            "structures": {
+                "skill": [
+                    "{skill_name}/SKILL.md",
+                    "{skill_name}/references/",
+                    "{skill_name}/assets/",
+                    "{skill_name}/scripts/"
+                ],
+                "plugin": [
+                    "{plugin_name}/index.ts",
+                    "{plugin_name}/package.json"
+                ]
+            }
+        }
+    }
+}
