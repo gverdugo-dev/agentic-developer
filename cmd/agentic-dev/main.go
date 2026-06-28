@@ -2,7 +2,6 @@ package main
 
 import (
 	"agentic-developer/internal/cli"
-	"agentic-developer/internal/scaffolding"
 	"log/slog"
 	"os"
 )
@@ -15,18 +14,8 @@ import (
 // agentic-dev delete plugin-marketplace my-new-plugin-marketplace
 
 func main() {
-
-	slog.Info("Starting aplications")
-	config := scaffolding.LoadConfig()
-
-	args, err := cli.NewArgsBody(os.Args)
-	if err != nil {
-		slog.Error("Error reading agentic-dev arguments")
+	if err := cli.Run(os.Args); err != nil {
+		slog.Error("agentic-dev failed", "err", err)
 		os.Exit(1)
 	}
-
-	artifactScaffold := scaffolding.GetScaffoldByArtifactKey(config, args.Artifact)
-
-	slog.Info("parsed command", "artifact", args.Artifact, "scaffold", artifactScaffold)
-	// scaffolding.ApplyConfig(artifactScaffold, args.ArtifactName, ".")
 }
