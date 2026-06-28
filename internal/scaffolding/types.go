@@ -2,14 +2,17 @@ package scaffolding
 
 import "fmt"
 
+// AIHarness identifies a supported AI coding-agent tool.
 type AIHarness int
 
+// The supported harnesses.
 const (
 	Codex AIHarness = iota
 	Claude
 	Opencode
 )
 
+// AIHarnesses maps each harness to its canonical CLI/JSON label.
 var AIHarnesses = map[AIHarness]string{
 	Codex:    "codex",
 	Claude:   "claude",
@@ -27,13 +30,16 @@ func ParseHarness(s string) (AIHarness, error) {
 	return 0, fmt.Errorf("unknown harness %q", s)
 }
 
+// Verb is the action a command performs.
 type Verb int
 
+// The supported verbs.
 const (
 	New Verb = iota
 	Delete
 )
 
+// Verbs maps each verb to its CLI label.
 var Verbs = map[Verb]string{
 	New:    "new",
 	Delete: "delete",
@@ -50,14 +56,18 @@ func ParseVerb(s string) (Verb, error) {
 	return 0, fmt.Errorf("unknown verb %q", s)
 }
 
+// Artifact is the kind of thing the tool scaffolds.
 type Artifact int
 
+// The supported artifacts.
 const (
 	Skill Artifact = iota
 	Plugin
 	PluginMarketplace
 )
 
+// Artifacts maps each artifact to its CLI label (kebab-case, what the user
+// types).
 var Artifacts = map[Artifact]string{
 	Skill:             "skill",
 	Plugin:            "plugin",
@@ -89,11 +99,13 @@ func ParseArtifact(s string) (Artifact, error) {
 // CLI argument and defaults to Project.
 type Scope int
 
+// The supported scopes.
 const (
 	Project Scope = iota
 	Local
 )
 
+// Scopes maps each scope to its CLI label.
 var Scopes = map[Scope]string{
 	Project: "project",
 	Local:   "local",

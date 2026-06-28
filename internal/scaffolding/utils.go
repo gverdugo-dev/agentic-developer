@@ -19,22 +19,16 @@ var harnessMarkers = map[AIHarness]string{
 // detection is deterministic (map iteration order in Go is random).
 var detectionOrder = []AIHarness{Claude, Codex, Opencode}
 
-// DetectAIHarness inspects the project dir (baseDir) and, failing that, the
-// user's home, looking for a tool-specific config directory. It returns the
-// matching harness or an error if none is found.
+// DetectAIHarness looks for a tool-specific config directory in baseDir only —
+// the same dir where the artifact will be written. It does NOT fall back to the
+// user's home, so it never infers a harness from elsewhere and then scaffolds it
+// into a project that didn't have one. Pass the harness explicitly to override.
 func DetectAIHarness(baseDir string) (AIHarness, error) {
-	// Project-level config wins over the user's global config.
 	if h, ok := detectIn(baseDir); ok {
 		return h, nil
 	}
 
-	if home, err := os.UserHomeDir(); err == nil {
-		if h, ok := detectIn(home); ok {
-			return h, nil
-		}
-	}
-
-	return 0, fmt.Errorf("no AI harness detected (looked for .claude, .codex, .opencode in %q and home)", baseDir)
+	return 0, fmt.Errorf("no AI harness detected in %q (looked for .claude, .codex, .opencode); pass the harness explicitly", baseDir)
 }
 
 // detectIn returns the first harness whose marker directory exists under dir,

@@ -1,3 +1,6 @@
+// Package cli parses the command-line arguments into a validated command and
+// dispatches it to the scaffolding engine. It is the boundary layer between the
+// raw process args and the typed domain in package scaffolding.
 package cli
 
 import (
@@ -7,15 +10,18 @@ import (
 	"path/filepath"
 )
 
-// ArgsBody is the parsed, validated form of a command line: verb + artifact +
-// the name the user wants to give the new artifact.
+// ArgsBody is the parsed, validated form of a command line.
 type ArgsBody struct {
-	Verb         scaffolding.Verb
-	Artifact     scaffolding.Artifact
+	// Verb is the action to perform (new or delete).
+	Verb scaffolding.Verb
+	// Artifact is the kind of thing to scaffold (skill, plugin, ...).
+	Artifact scaffolding.Artifact
+	// ArtifactName is the name given to the artifact; it becomes its root dir.
 	ArtifactName string
-	Scope        scaffolding.Scope
-	// Harness is an optional override of harness auto-detection. nil means
-	// "detect it from the folders".
+	// Scope decides where the artifact lives (project dir or the user's home).
+	Scope scaffolding.Scope
+	// Harness optionally overrides harness auto-detection. nil means "detect it
+	// from the folders".
 	Harness *scaffolding.AIHarness
 }
 

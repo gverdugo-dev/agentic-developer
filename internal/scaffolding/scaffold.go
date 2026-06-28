@@ -1,3 +1,7 @@
+// Package scaffolding is the domain core of agentic-dev. It owns the typed
+// model (harnesses, verbs, artifacts, scopes), harness auto-detection, the
+// embedded layout config (structures.json), and the create/remove engine that
+// turns a list of resource paths into real directories and files on disk.
 package scaffolding
 
 import (
@@ -17,16 +21,20 @@ var placeholder = regexp.MustCompile(`\{[^}]+\}`)
 //go:embed structures.json
 var structuresConfig []byte
 
-// Config is the embedded structures.json: a set of harnesses (claude, codex),
-// each exposing named structures (skill, plugin, ...) -> list of resource paths.
+// Config is the decoded structures.json: a set of harnesses (claude, codex,
+// opencode), keyed by their JSON name.
 type Config struct {
 	Harness map[string]Harness `json:"harness"`
 }
 
+// Harness holds the named structures of a single harness, mapping each
+// structure name (skill, plugin, ...) to its list of resource paths.
 type Harness struct {
 	Structures map[string][]string `json:"structures"`
 }
 
+// LoadConfig decodes the embedded structures.json into a Config. A malformed
+// file is logged and yields a zero Config rather than panicking.
 func LoadConfig() Config {
 
 	var data Config
