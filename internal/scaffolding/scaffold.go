@@ -3,6 +3,7 @@ package scaffolding
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -63,4 +64,30 @@ func ApplyConfig(resources []string, name, baseDir string) error {
 	}
 
 	return nil
+}
+
+// RemoveConfig deletes a previously scaffolded artifact: the directory named
+// after the artifact under baseDir. The whole scaffold lives under that single
+// root dir, so removing it is enough. It refuses empty names or names that try
+// to escape baseDir, and errors if the directory doesn't exist.
+func RemoveConfig(name, baseDir string) error {
+
+	if name == "" {
+		return fmt.Errorf("artifact name is empty")
+	}
+	if strings.ContainsAny(name, `/\`) || name == ".." {
+		return fmt.Errorf("invalid artifact name %q", name)
+	}
+
+	target := filepath.Join(baseDir, name)
+
+	info, err := os.Stat(target)
+	if err != nil {
+		return fmt.Errorf("artifact %q not found: %w", name, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%q is not a directory", target)
+	}
+
+	return os.RemoveAll(target)
 }

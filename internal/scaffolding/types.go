@@ -16,6 +16,17 @@ var AIHarnesses = map[AIHarness]string{
 	Opencode: "opencode",
 }
 
+// ParseHarness resolves the CLI string (e.g. "claude") into an AIHarness, or
+// errors if the string matches no known harness.
+func ParseHarness(s string) (AIHarness, error) {
+	for h, label := range AIHarnesses {
+		if label == s {
+			return h, nil
+		}
+	}
+	return 0, fmt.Errorf("unknown harness %q", s)
+}
+
 type Verb int
 
 const (
@@ -71,4 +82,30 @@ func ParseArtifact(s string) (Artifact, error) {
 		}
 	}
 	return 0, fmt.Errorf("unknown artifact %q", s)
+}
+
+// Scope decides where the artifact is scaffolded: Project = the current working
+// directory; Local = the whole machine (the user's home). It's the optional 4th
+// CLI argument and defaults to Project.
+type Scope int
+
+const (
+	Project Scope = iota
+	Local
+)
+
+var Scopes = map[Scope]string{
+	Project: "project",
+	Local:   "local",
+}
+
+// ParseScope resolves the CLI string (e.g. "local") into a Scope, or errors if
+// the string matches no known scope.
+func ParseScope(s string) (Scope, error) {
+	for sc, label := range Scopes {
+		if label == s {
+			return sc, nil
+		}
+	}
+	return 0, fmt.Errorf("unknown scope %q", s)
 }

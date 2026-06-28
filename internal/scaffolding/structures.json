@@ -31,6 +31,20 @@
                     "{skill_name}/agents/"
                 ]
             }
+        },
+        "opencode": {
+            "structures": {
+                "skill": [
+                    "{skill_name}/SKILL.md",
+                    "{skill_name}/references/",
+                    "{skill_name}/assets/",
+                    "{skill_name}/scripts/"
+                ],
+                "plugin": [
+                    "{plugin_name}/index.ts",
+                    "{plugin_name}/package.json"
+                ]
+            }
         }
     }
 }
