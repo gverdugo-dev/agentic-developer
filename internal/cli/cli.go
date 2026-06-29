@@ -23,12 +23,29 @@ type ArgsBody struct {
 	// Harness optionally overrides harness auto-detection. nil means "detect it
 	// from the folders".
 	Harness *scaffolding.AIHarness
+	// Force allows overwriting an artifact whose folder already exists. Without
+	// it, creating over an existing artifact is rejected.
+	Force bool
 }
 
 // Run is the single entry point of the CLI: it parses the raw process args and
 // dispatches the resulting command. It returns an error so main() can decide
 // the exit code in one place.
 func Run(args []string) error {
+	// Top-level commands with their own shape (no verb/artifact/name) are handled
+	// before the scaffolding arg parsing.
+	if len(args) >= 2 {
+		switch args[1] {
+		case "version", "--version", "-v":
+			printVersion()
+			return nil
+		case "update":
+			return runUpdate()
+		case "setup":
+			return runSetup(args[2:])
+		}
+	}
+
 	cmd, err := NewArgsBody(args)
 	if err != nil {
 		return err
@@ -40,6 +57,10 @@ func Run(args []string) error {
 // strings are parsed into typed enums here, so invalid verbs/artifacts are
 // rejected at the boundary.
 func NewArgsBody(args []string) (ArgsBody, error) {
+	// Flags (e.g. --force) are pulled out first, so the remaining positional
+	// args keep their fixed slots regardless of where the flag was written.
+	args, force := splitFlags(args)
+
 	if len(args) < 4 {
 		return ArgsBody{}, errors.New("provide the verb, the artifact and the artifact name")
 	}
@@ -79,7 +100,22 @@ func NewArgsBody(args []string) (ArgsBody, error) {
 		ArtifactName: args[3],
 		Scope:        scope,
 		Harness:      harness,
+		Force:        force,
 	}, nil
+}
+
+// splitFlags separates --flags from positional args, returning the positional
+// args (with flags removed) and whether --force was present.
+func splitFlags(args []string) (positional []string, force bool) {
+	for _, a := range args {
+		switch a {
+		case "--force":
+			force = true
+		default:
+			positional = append(positional, a)
+		}
+	}
+	return positional, force
 }
 
 // executeCommand routes the command to the right handler based on its verb.
@@ -108,7 +144,7 @@ func createArtifact(cmd ArgsBody) error {
 		return err
 	}
 
-	return scaffolding.ApplyConfig(resources, cmd.ArtifactName, baseDir)
+	return scaffolding.ApplyConfig(resources, cmd.ArtifactName, baseDir, cmd.Force)
 }
 
 // deleteArtifact removes a previously scaffolded artifact from the dir resolved

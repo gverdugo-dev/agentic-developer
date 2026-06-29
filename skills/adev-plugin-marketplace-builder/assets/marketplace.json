@@ -1,0 +1,27 @@
+{
+  "name": "<marketplace-name>",
+  "owner": {
+    "name": "<team or company>",
+    "email": "<contact@example.com>"
+  },
+  "description": "<one line: who this catalog serves>",
+  "metadata": {
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "<local-plugin>",
+      "source": "<local-plugin>",
+      "description": "<what it does>",
+      "version": "1.0.0"
+    },
+    {
+      "name": "<external-plugin>",
+      "source": {
+        "source": "github",
+        "repo": "<owner>/<repo>"
+      },
+      "description": "<what it does>"
+    }
+  ]
+}

@@ -19,7 +19,7 @@ var harnessMarkers = map[AIHarness]string{
 // detection is deterministic (map iteration order in Go is random).
 var detectionOrder = []AIHarness{Claude, Codex, Opencode}
 
-// DetectAIHarness looks for a tool-specific config directory in baseDir only —
+// DetectAIHarness looks for a tool-specific config directory in baseDir only,
 // the same dir where the artifact will be written. It does NOT fall back to the
 // user's home, so it never infers a harness from elsewhere and then scaffolds it
 // into a project that didn't have one. Pass the harness explicitly to override.

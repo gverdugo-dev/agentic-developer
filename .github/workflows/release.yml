@@ -1,0 +1,31 @@
+name: release
+
+# Build prebuilt adev binaries for every OS/arch and publish them to a GitHub
+# Release whenever a version tag (vX.Y.Z) is pushed. install.sh / install.bat
+# download these assets, so users never need a Go toolchain.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build release artifacts
+        run: make release VERSION="${GITHUB_REF_NAME}"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
