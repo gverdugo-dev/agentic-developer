@@ -152,6 +152,29 @@ describes what the preflight verifies, how to satisfy each requirement, and how
 to run it. `references/setup.md` is the skill's setup guide; the `setup.sh` /
 `setup.bat` script is its executable form.
 
+## 5. Plugins: logical containers of artifacts
+
+A plugin is a **logical container of AI artifacts**. You reach for one when a set
+of artifacts belongs together — either because they are **coherent with each
+other**, or because they serve a **specific profile of people**. That is why a
+plugin is scoped to a concrete process, a team, or a department: the plugin is the
+boundary that says *these artifacts go together*, and the unit in which they ship
+and are installed.
+
+Its two key pieces:
+
+- **Skills** — the processes, and the orchestrators that run them.
+- **Agents** — the generic, single-task workers the skills coordinate (see §3.1).
+
+Agents are what make a plugin worth it: they let the plugin's skills become **more
+powerful** than a lone skill could be. A standalone skill has no subagents; a
+plugin gives its skills that capability, so a skill can fan work out to generic
+agents and keep its own context clean while they do the heavy lifting.
+
+**Make a plugin instead of a skill when** the work needs its own subagents, or
+when several coherent artifacts serve the same process / team / audience and
+should ship and install as one unit.
+
 ## Checklist
 
 Before calling a skill done, verify:
