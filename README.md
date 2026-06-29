@@ -25,22 +25,27 @@ to build well-formed artifacts.
 - **Self-contained binary**: the layout config and the bundled skills are
   embedded at build time, so there are no external files to ship.
 
-## Installation
+## Install
 
-Requires Go 1.26+.
+Prebuilt binaries, no Go toolchain required.
+
+**macOS / Linux**
 
 ```bash
-# Build the binary into ./bin/adev
-make build
-
-# Install adev into your Go bin (PATH)
-make install        # = go install ./cmd/adev
-
-# Or run directly without installing
-go run ./cmd/adev <args>
+curl -fsSL https://raw.githubusercontent.com/gverdugo-dev/agentic-developer/main/install.sh | sh
 ```
 
-Once `adev` is on your PATH, install its bundled skills into your harness:
+**Windows** (PowerShell or `cmd`)
+
+```bat
+curl -fsSL -o install.bat https://raw.githubusercontent.com/gverdugo-dev/agentic-developer/main/install.bat && install.bat
+```
+
+The installer detects your OS/arch, downloads the matching binary from the
+[latest release](https://github.com/gverdugo-dev/agentic-developer/releases),
+and drops `adev` on your PATH. Override the location with `ADEV_INSTALL_DIR`.
+
+Then install adev's bundled skills into your harness:
 
 ```bash
 adev setup          # harness auto-detected from your home (~/.claude, ...)
@@ -48,6 +53,8 @@ adev setup claude   # or target a specific harness
 ```
 
 `setup` always writes to the **user's** config (home), never the project.
+
+> Building from source instead? See [Development](#development).
 
 ## Usage
 
@@ -257,4 +264,4 @@ go doc ./internal/scaffolding   # browse the package docs
 [x] Install skills inside the user's harness on setup (`adev setup`).
 [x] Detect folder exists (refuse overwrite unless `--force`)
 [ ] Scaffold artifacts inside a target plugin (`plugins/<plugin>/skills/...`).
-[ ] Install script (install.sh / install.bat) for binary distribution.
+[x] Install script (install.sh / install.bat) + prebuilt-binary releases.
