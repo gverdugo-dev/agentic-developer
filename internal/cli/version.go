@@ -42,5 +42,7 @@ func resolveVersion() string {
 
 // printVersion writes the version and platform to stdout.
 func printVersion() {
-	fmt.Printf("adev %s (%s/%s)\n", resolveVersion(), runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("adev %s %s\n",
+		accent(resolveVersion()),
+		muted(fmt.Sprintf("(%s/%s)", runtime.GOOS, runtime.GOARCH)))
 }
