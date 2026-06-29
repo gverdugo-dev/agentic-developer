@@ -32,10 +32,18 @@ type ArgsBody struct {
 // dispatches the resulting command. It returns an error so main() can decide
 // the exit code in one place.
 func Run(args []string) error {
-	// setup is a top-level command with its own shape (`adev setup [harness]`),
-	// so it's handled before the artifact verb/artifact/name parsing.
-	if len(args) >= 2 && args[1] == "setup" {
-		return runSetup(args[2:])
+	// Top-level commands with their own shape (no verb/artifact/name) are handled
+	// before the scaffolding arg parsing.
+	if len(args) >= 2 {
+		switch args[1] {
+		case "version", "--version", "-v":
+			printVersion()
+			return nil
+		case "update":
+			return runUpdate()
+		case "setup":
+			return runSetup(args[2:])
+		}
 	}
 
 	cmd, err := NewArgsBody(args)

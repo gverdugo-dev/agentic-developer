@@ -54,6 +54,9 @@ adev setup claude   # or target a specific harness
 
 `setup` always writes to the **user's** config (home), never the project.
 
+To upgrade later, run `adev update` — it self-updates to the latest release in
+place. Check your version with `adev version`.
+
 > Building from source instead? See [Development](#development).
 
 ## Usage
@@ -61,6 +64,8 @@ adev setup claude   # or target a specific harness
 ```
 adev <verb> <artifact> <name> [scope] [harness] [--force]
 adev setup [harness]
+adev update
+adev version
 ```
 
 | Argument   | Required | Values                                      | Default                  |

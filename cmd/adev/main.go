@@ -6,6 +6,8 @@
 //
 //	adev <verb> <artifact> <name> [scope] [harness] [--force]
 //	adev setup [harness]
+//	adev update
+//	adev version
 //
 //	verb:     new | delete
 //	artifact: skill | plugin | plugin-marketplace
@@ -22,6 +24,8 @@
 //	adev delete skill my-new-skill
 //	adev setup          # install adev's skills into the detected harness (home)
 //	adev setup claude   # ... into a specific harness
+//	adev update         # self-update to the latest release
+//	adev version        # print the version
 package main
 
 import (

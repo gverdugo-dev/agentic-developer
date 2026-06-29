@@ -21,23 +21,8 @@ jobs:
         with:
           go-version: stable
 
-      - name: Build all targets
-        run: |
-          mkdir -p dist
-          targets="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64"
-          for t in $targets; do
-            export GOOS="${t%/*}" GOARCH="${t#*/}" CGO_ENABLED=0
-            bin=adev
-            [ "$GOOS" = windows ] && bin=adev.exe
-            go build -trimpath -ldflags "-s -w" -o "$bin" ./cmd/adev
-            if [ "$GOOS" = windows ]; then
-              zip -q "dist/adev_${GOOS}_${GOARCH}.zip" "$bin"
-            else
-              tar -czf "dist/adev_${GOOS}_${GOARCH}.tar.gz" "$bin"
-            fi
-            rm -f "$bin"
-          done
-          cd dist && sha256sum * > checksums.txt
+      - name: Build release artifacts
+        run: make release VERSION="${GITHUB_REF_NAME}"
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
