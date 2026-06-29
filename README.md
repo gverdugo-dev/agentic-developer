@@ -35,7 +35,7 @@ go run ./cmd/agentic-dev <args>
 ## Usage
 
 ```
-agentic-dev <verb> <artifact> <name> [scope] [harness]
+agentic-dev <verb> <artifact> <name> [scope] [harness] [--force]
 ```
 
 | Argument   | Required | Values                                      | Default                  |
@@ -45,8 +45,14 @@ agentic-dev <verb> <artifact> <name> [scope] [harness]
 | `name`     | yes      | any name without `/`, `\` or `..`           | —                        |
 | `scope`    | no       | `project`, `local`                          | `project`                |
 | `harness`  | no       | `claude`, `codex`, `opencode`               | auto-detected            |
+| `--force`  | no       | flag — overwrite an existing artifact       | off (refuse if exists)   |
 
 > Positional optionals: to pass `harness` you must also pass `scope` before it.
+> `--force` is a flag, so it can go anywhere in the command.
+
+By default, `new` refuses to scaffold over an artifact whose folder already
+exists, to avoid clobbering work. Pass `--force` to remove the existing folder
+and recreate it from scratch.
 
 ### Examples
 
@@ -62,6 +68,9 @@ agentic-dev new skill my-new-skill project opencode
 
 # Remove a skill
 agentic-dev delete skill my-new-skill
+
+# Overwrite an existing skill completely
+agentic-dev new skill my-new-skill --force
 ```
 
 ## How it works
@@ -177,8 +186,6 @@ go doc ./internal/scaffolding   # browse the package docs
 
 ## Roadmap
 
-- [ ] Add the `codex`/`opencode` global config paths (e.g. `~/.config/opencode`)
-      to home-level detection.
-- [ ] Move `scope` and `harness` to named flags (`--scope`, `--harness`).
-- [ ] Flesh out the `codex` and `opencode` artifact layouts.
-- [ ] Ship a skill documenting the full opinionated development cycle.
+[] Create adev skills framework.
+[] Install skills inside users harness on adev installation
+[x] Detect folder exists (refuse overwrite unless `--force`)

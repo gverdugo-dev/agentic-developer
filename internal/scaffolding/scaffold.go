@@ -49,7 +49,23 @@ func LoadConfig() Config {
 // ApplyConfig creates the directory/file structure described by resources,
 // replacing the {placeholder} in each path with name, under baseDir.
 // Paths ending in "/" are created as directories; the rest as empty files.
-func ApplyConfig(resources []string, name, baseDir string) error {
+//
+// The whole scaffold lives under a single root dir (baseDir/name). If that root
+// already exists, ApplyConfig refuses to touch it unless force is set, in which
+// case the existing root is removed and recreated from scratch.
+func ApplyConfig(resources []string, name, baseDir string, force bool) error {
+
+	root := filepath.Join(baseDir, name)
+	if _, err := os.Stat(root); err == nil {
+		if !force {
+			return fmt.Errorf("artifact %q already exists at %q; pass --force to overwrite it completely", name, root)
+		}
+		if err := os.RemoveAll(root); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 
 	for _, resource := range resources {
 		rel := placeholder.ReplaceAllString(resource, name)
