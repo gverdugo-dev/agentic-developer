@@ -35,11 +35,13 @@ Three layers, raw args flow down through them:
 
 ```
 cmd/adev/main.go            Entry point: wires the program, owns the exit code.
-internal/cli/               Boundary: parse + validate args, dispatch.
-  cli.go                    ArgsBody, Run, NewArgsBody, command dispatch.
-  setup.go                  `adev setup`: install bundled skills into a harness.
-  version.go                `adev version` + the ldflags-injected Version var.
-  update.go                 `adev update`: self-update from the latest release.
+internal/cli/               Boundary: every invocation is a Command that parses
+                            its own flags and runs itself; Run dispatches.
+  cli.go                    Command interface, the command registry, Run dispatch, help.
+  scaffold_cmd.go           scaffoldCmd (new + delete): flag parsing + apply/remove.
+  setup.go                  setupCmd: install bundled skills into a harness.
+  version.go                versionCmd + the ldflags-injected Version var.
+  update.go                 updateCmd: self-update from the latest release.
 internal/scaffolding/       Domain core.
   types.go                  Typed model (AIHarness, Verb, Artifact, Scope) + Parse* validators.
   scaffold.go               Config load + ApplyConfig/RemoveConfig engine.
@@ -49,6 +51,36 @@ skills/                     Bundled skills, embedded via //go:embed.
   skills.go                 Embed + Install into a harness skills dir.
   adev-cli/, adev-skill-builder/, adev-plugin-builder/, adev-plugin-marketplace-builder/
 ```
+
+### How the CLI is organized
+
+The `cli` package follows the subcommand pattern used by the `go` tool itself:
+every invocation is a `Command`, and a registry maps the first arg to it.
+
+```go
+type Command interface {
+	Name() string     // the word typed on the command line
+	Synopsis() string // one-line description for the top-level help
+	Run(args []string) error // parses the args after the name, then runs
+}
+```
+
+`Run` (in `cli.go`) looks the command up in the `commands` map and hands it
+everything after the command name; each command then owns the parsing of its own
+flags via a `flag.FlagSet`. This keeps a single model: `new`, `delete`, `setup`,
+`update`, and `version` are all sibling commands, instead of special-casing the
+flagless ones outside an arg parser.
+
+- `new` and `delete` are one type, `scaffoldCmd`, parameterized by a `Verb`: they
+  share the same grammar (`<artifact> <name>` plus `--scope`, `--harness`, and
+  `--force` for `new` only) and differ only in apply vs remove. The two
+  positionals are validated into typed domain values (`scaffoldRequest`) at the
+  boundary, so the rest of the flow works only with valid enums.
+- Flags may appear before, after, or between the positionals. Go's `flag` package
+  stops at the first non-flag token, so `parseInterspersed` re-parses the
+  remainder after each positional. Unknown flags still surface as errors.
+- Adding a command is implementing `Command` and adding it to `commands` (and to
+  `order`, which fixes the help listing order); the dispatcher does not change.
 
 ### How scaffolding works
 
