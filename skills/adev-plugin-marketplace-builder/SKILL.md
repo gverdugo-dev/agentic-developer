@@ -35,7 +35,7 @@ Copy this checklist and work top to bottom:
 
 ```
 - [ ] 1. Decide the catalog's scope (team / company) and which plugins it lists
-- [ ] 2. Scaffold it: adev new plugin-marketplace <name> [scope] [harness]
+- [ ] 2. Scaffold it: adev new plugin-marketplace <name> [--scope s] [--harness h]
 - [ ] 3. Write marketplace.json (name, owner, plugins)
 - [ ] 4. Set each plugin's source and versioning
 - [ ] 5. Host it on a git remote (GitHub recommended)
@@ -49,7 +49,7 @@ plugins it lists. One marketplace can reference plugins from many repos.
 hand:
 
 ```bash
-adev new plugin-marketplace <name> [scope] [harness]
+adev new plugin-marketplace <name> [--scope s] [--harness h]
 ```
 
 This creates `.claude-plugin/marketplace.json` plus an empty `plugins/` folder.

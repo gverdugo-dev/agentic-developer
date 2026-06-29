@@ -18,25 +18,25 @@ How every `adev` command parses its arguments and what it does on disk.
 ## Synopsis
 
 ```
-adev new    <artifact> <name> [scope] [harness] [--force]
-adev delete <artifact> <name> [scope] [harness]
+adev new    <artifact> <name> [--scope s] [--harness h] [--force]
+adev delete <artifact> <name> [--scope s] [--harness h]
 adev setup  [harness]
 ```
 
-`new` and `delete` are positional: the first three words are always
-`<verb> <artifact> <name>`. `scope` and `harness` are positional optionals in
-that order: to pass `harness` you must also pass `scope` before it. `--force`
-is a flag, so it can appear anywhere in the command.
+`new` and `delete` take two positional arguments, `<artifact> <name>`. Scope,
+harness, and force are flags: they may appear before, after, or between the
+positionals, in any order. `adev new skill foo --harness opencode` and
+`adev new --harness opencode skill foo` are equivalent.
 
 ## Arguments
 
-| Argument   | Required | Values                                    | Default                |
-| ---------- | -------- | ----------------------------------------- | ---------------------- |
-| `artifact` | yes      | `skill`, `plugin`, `plugin-marketplace`   | (none)                 |
-| `name`     | yes      | any name without `/`, `\`, or `..`        | (none)                 |
-| `scope`    | no       | `project`, `local`                        | `project`              |
-| `harness`  | no       | `claude`, `codex`, `opencode`             | auto-detected          |
-| `--force`  | no       | flag                                      | off (refuse if exists) |
+| Argument    | Required | Values                                    | Default                |
+| ----------- | -------- | ----------------------------------------- | ---------------------- |
+| `artifact`  | yes      | `skill`, `plugin`, `plugin-marketplace`   | (none)                 |
+| `name`      | yes      | any name without `/`, `\`, or `..`        | (none)                 |
+| `--scope`   | no       | `project`, `local`                        | `project`              |
+| `--harness` | no       | `claude`, `codex`, `opencode`             | auto-detected          |
+| `--force`   | no       | overwrite an existing artifact (`new`)    | off (refuse if exists) |
 
 `name` becomes the artifact's root folder, so it is validated: an empty name, or
 one containing `/`, `\`, or `..`, is rejected to keep the write inside the target
@@ -152,7 +152,8 @@ Typical Claude layouts:
 
 `adev` exits non-zero and prints a single error on any failure, including:
 
-- unknown verb, artifact, scope, or harness;
+- unknown command, artifact, scope, or harness;
+- an unknown flag, or extra positional arguments;
 - missing required arguments;
 - no harness detected and none given;
 - an unsupported harness/artifact pair;
@@ -166,10 +167,10 @@ Typical Claude layouts:
 adev new skill my-new-skill
 
 # Plugin on the whole machine (under the user's home)
-adev new plugin my-new-plugin local
+adev new plugin my-new-plugin --scope local
 
 # Skill forced into the opencode layout, in the current project
-adev new skill my-new-skill project opencode
+adev new skill my-new-skill --harness opencode
 
 # Overwrite an existing skill completely
 adev new skill my-new-skill --force

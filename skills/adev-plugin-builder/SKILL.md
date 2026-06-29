@@ -34,7 +34,7 @@ Copy this checklist and work top to bottom:
 ```
 - [ ] 1. Define the plugin boundary (process / team / audience)
 - [ ] 2. Decompose into skills (processes) and agents (workers)
-- [ ] 3. Scaffold it: adev new plugin <name> [scope] [harness]
+- [ ] 3. Scaffold it: adev new plugin <name> [--scope s] [--harness h]
 - [ ] 4. Write plugin.json (the manifest)
 - [ ] 5. Build the agents: generic, single-task, judgment-bearing
 - [ ] 6. Build the skills, wired to launch those agents
@@ -55,7 +55,7 @@ orchestrates. Map which steps are deterministic (→ scripts), which need judgme
 by hand:
 
 ```bash
-adev new plugin <name> [scope] [harness]
+adev new plugin <name> [--scope s] [--harness h]
 ```
 
 This creates `.claude-plugin/plugin.json` plus empty `commands/`, `agents/`,

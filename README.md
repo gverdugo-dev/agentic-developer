@@ -62,23 +62,27 @@ place. Check your version with `adev version`.
 ## Usage
 
 ```
-adev <verb> <artifact> <name> [scope] [harness] [--force]
+adev new <artifact> <name> [--scope s] [--harness h] [--force]
+adev delete <artifact> <name> [--scope s] [--harness h]
 adev setup [harness]
 adev update
 adev version
 ```
 
-| Argument   | Required | Values                                      | Default                  |
-| ---------- | -------- | ------------------------------------------- | ------------------------ |
-| `verb`     | yes      | `new`, `delete`                             | (none)                   |
-| `artifact` | yes      | `skill`, `plugin`, `plugin-marketplace`     | (none)                   |
-| `name`     | yes      | any name without `/`, `\` or `..`           | (none)                   |
-| `scope`    | no       | `project`, `local`                          | `project`                |
-| `harness`  | no       | `claude`, `codex`, `opencode`               | auto-detected            |
-| `--force`  | no       | flag to overwrite an existing artifact      | off (refuse if exists)   |
+Every invocation is a command. `new` and `delete` take two positional arguments
+(the artifact and its name) plus optional flags.
 
-> Positional optionals: to pass `harness` you must also pass `scope` before it.
-> `--force` is a flag, so it can go anywhere in the command.
+| Argument    | Required | Values                                      | Default                  |
+| ----------- | -------- | ------------------------------------------- | ------------------------ |
+| `artifact`  | yes      | `skill`, `plugin`, `plugin-marketplace`     | (none)                   |
+| `name`      | yes      | any name without `/`, `\` or `..`           | (none)                   |
+| `--scope`   | no       | `project`, `local`                          | `project`                |
+| `--harness` | no       | `claude`, `codex`, `opencode`               | auto-detected            |
+| `--force`   | no       | overwrite an existing artifact (`new` only) | off (refuse if exists)   |
+
+> Flags may appear before, after, or between the positional arguments, in any
+> order: `adev new skill foo --harness opencode` and
+> `adev new --harness opencode skill foo` are equivalent.
 
 By default, `new` refuses to scaffold over an artifact whose folder already
 exists, to avoid clobbering work. Pass `--force` to remove the existing folder
@@ -105,10 +109,10 @@ adev setup
 adev new skill my-new-skill
 
 # Plugin on the whole machine (under the user's home)
-adev new plugin my-new-plugin local
+adev new plugin my-new-plugin --scope local
 
 # Skill forced into the opencode layout, in the current project
-adev new skill my-new-skill project opencode
+adev new skill my-new-skill --harness opencode
 
 # Remove a skill
 adev delete skill my-new-skill

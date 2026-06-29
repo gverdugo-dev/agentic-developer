@@ -32,7 +32,7 @@ Copy this checklist and work top to bottom:
 ```
 - [ ] 1. Define the job + 2-3 concrete use cases
 - [ ] 2. Decide: skill or plugin?
-- [ ] 3. Scaffold it: adev new skill <name> [scope] [harness]
+- [ ] 3. Scaffold it: adev new skill <name> [--scope s] [--harness h]
 - [ ] 4. Map the steps: deterministic vs judgment, parallel vs dependent
 - [ ] 5. Write the deterministic scripts (+ scripts/CLAUDE.md index)
 - [ ] 6. Add the preflight (scripts/setup.sh|.bat + references/setup.md)
@@ -52,7 +52,7 @@ related skills, it's a plugin. Otherwise a skill. See
 by hand:
 
 ```bash
-adev new skill <name> [scope] [harness]
+adev new skill <name> [--scope s] [--harness h]
 ```
 
 This creates `SKILL.md` plus empty `references/`, `assets/`, and `scripts/` in the

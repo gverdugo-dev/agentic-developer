@@ -1,182 +1,79 @@
-// Package cli parses the command-line arguments into a validated command and
-// dispatches it to the scaffolding engine. It is the boundary layer between the
-// raw process args and the typed domain in package scaffolding.
+// Package cli is the boundary layer between the raw process args and the typed
+// domain in package scaffolding. It models every invocation as a Command: each
+// command owns the parsing of its own flags and positional args and runs
+// itself, and Run dispatches to the one named on the command line.
 package cli
 
 import (
 	"agentic-developer/internal/scaffolding"
 	"errors"
 	"fmt"
-	"path/filepath"
 )
 
-// ArgsBody is the parsed, validated form of a command line.
-type ArgsBody struct {
-	// Verb is the action to perform (new or delete).
-	Verb scaffolding.Verb
-	// Artifact is the kind of thing to scaffold (skill, plugin, ...).
-	Artifact scaffolding.Artifact
-	// ArtifactName is the name given to the artifact; it becomes its root dir.
-	ArtifactName string
-	// Scope decides where the artifact lives (project dir or the user's home).
-	Scope scaffolding.Scope
-	// Harness optionally overrides harness auto-detection. nil means "detect it
-	// from the folders".
-	Harness *scaffolding.AIHarness
-	// Force allows overwriting an artifact whose folder already exists. Without
-	// it, creating over an existing artifact is rejected.
-	Force bool
+// Command is a single adev subcommand (new, delete, setup, ...). Each one parses
+// the args that follow its name and executes itself, so adding a command is a
+// matter of implementing this interface and registering it, with no change to
+// the dispatcher.
+type Command interface {
+	// Name is the word typed on the command line to select the command.
+	Name() string
+	// Synopsis is the one-line description shown in the top-level help.
+	Synopsis() string
+	// Run executes the command. args are the process args that follow the
+	// command name, so each command parses its own flags and positionals.
+	Run(args []string) error
 }
 
-// Run is the single entry point of the CLI: it parses the raw process args and
-// dispatches the resulting command. It returns an error so main() can decide
-// the exit code in one place.
-func Run(args []string) error {
-	// Top-level commands with their own shape (no verb/artifact/name) are handled
-	// before the scaffolding arg parsing.
-	if len(args) >= 2 {
-		switch args[1] {
-		case "version", "--version", "-v":
-			printVersion()
-			return nil
-		case "update":
-			return runUpdate()
-		case "setup":
-			return runSetup(args[2:])
-		}
-	}
-
-	cmd, err := NewArgsBody(args)
-	if err != nil {
-		return err
-	}
-	return executeCommand(cmd)
+// commands is the registry of every available command, keyed by its name.
+var commands = map[string]Command{
+	"new":     scaffoldCmd{verb: scaffolding.New},
+	"delete":  scaffoldCmd{verb: scaffolding.Delete},
+	"setup":   setupCmd{},
+	"update":  updateCmd{},
+	"version": versionCmd{},
 }
 
-// NewArgsBody validates the raw args and turns them into an ArgsBody. The
-// strings are parsed into typed enums here, so invalid verbs/artifacts are
-// rejected at the boundary.
-func NewArgsBody(args []string) (ArgsBody, error) {
-	// Flags (e.g. --force) are pulled out first, so the remaining positional
-	// args keep their fixed slots regardless of where the flag was written.
-	args, force := splitFlags(args)
+// order fixes the listing order in the help output; map iteration is random.
+var order = []string{"new", "delete", "setup", "update", "version"}
 
-	if len(args) < 4 {
-		return ArgsBody{}, errors.New("provide the verb, the artifact and the artifact name")
+// Run is the single entry point of the CLI: it selects the command named by the
+// first arg and hands it the rest. It returns an error so main() can decide the
+// exit code in one place.
+func Run(argv []string) error {
+	if len(argv) < 2 {
+		printUsage()
+		return errors.New("no command given")
 	}
 
-	verb, err := scaffolding.ParseVerb(args[1])
-	if err != nil {
-		return ArgsBody{}, err
+	name := argv[1]
+	switch name {
+	case "-h", "--help", "help":
+		printUsage()
+		return nil
+	case "-v", "--version":
+		name = "version"
 	}
 
-	artifact, err := scaffolding.ParseArtifact(args[2])
-	if err != nil {
-		return ArgsBody{}, err
+	cmd, ok := commands[name]
+	if !ok {
+		printUsage()
+		return fmt.Errorf("unknown command %q", name)
 	}
 
-	// Scope is the optional 4th argument; it defaults to project.
-	scope := scaffolding.Project
-	if len(args) >= 5 {
-		scope, err = scaffolding.ParseScope(args[4])
-		if err != nil {
-			return ArgsBody{}, err
-		}
-	}
-
-	// Harness is the optional 5th argument; when absent it is auto-detected.
-	var harness *scaffolding.AIHarness
-	if len(args) >= 6 {
-		h, err := scaffolding.ParseHarness(args[5])
-		if err != nil {
-			return ArgsBody{}, err
-		}
-		harness = &h
-	}
-
-	return ArgsBody{
-		Verb:         verb,
-		Artifact:     artifact,
-		ArtifactName: args[3],
-		Scope:        scope,
-		Harness:      harness,
-		Force:        force,
-	}, nil
+	return cmd.Run(argv[2:])
 }
 
-// splitFlags separates --flags from positional args, returning the positional
-// args (with flags removed) and whether --force was present.
-func splitFlags(args []string) (positional []string, force bool) {
-	for _, a := range args {
-		switch a {
-		case "--force":
-			force = true
-		default:
-			positional = append(positional, a)
-		}
+// printUsage writes the top-level help: the command list with each synopsis.
+func printUsage() {
+	fmt.Println("adev scaffolds and removes AI coding-agent artifacts.")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Println("\tadev <command> [arguments]")
+	fmt.Println()
+	fmt.Println("Commands:")
+	for _, name := range order {
+		fmt.Printf("\t%-9s %s\n", name, commands[name].Synopsis())
 	}
-	return positional, force
-}
-
-// executeCommand routes the command to the right handler based on its verb.
-func executeCommand(cmd ArgsBody) error {
-	switch cmd.Verb {
-	case scaffolding.New:
-		return createArtifact(cmd)
-	case scaffolding.Delete:
-		return deleteArtifact(cmd)
-	default:
-		return fmt.Errorf("unhandled verb %v", cmd.Verb)
-	}
-}
-
-// createArtifact scaffolds the artifact's folder structure under the dir
-// resolved from the scope + harness placement, using the harness detected there.
-func createArtifact(cmd ArgsBody) error {
-	baseDir, harness, err := resolveTarget(cmd)
-	if err != nil {
-		return err
-	}
-
-	config := scaffolding.LoadConfig()
-	resources, err := scaffolding.GetScaffoldByArtifactKey(config, harness, cmd.Artifact)
-	if err != nil {
-		return err
-	}
-
-	return scaffolding.ApplyConfig(resources, cmd.ArtifactName, baseDir, cmd.Force)
-}
-
-// deleteArtifact removes a previously scaffolded artifact from the dir resolved
-// from the scope + harness placement.
-func deleteArtifact(cmd ArgsBody) error {
-	baseDir, _, err := resolveTarget(cmd)
-	if err != nil {
-		return err
-	}
-
-	return scaffolding.RemoveConfig(cmd.ArtifactName, baseDir)
-}
-
-// resolveTarget computes where an artifact should live: the scope base dir plus
-// the harness-specific placement prefix. It also returns the detected harness,
-// which createArtifact needs to look up the right scaffold.
-func resolveTarget(cmd ArgsBody) (baseDir string, harness scaffolding.AIHarness, err error) {
-	scopeDir, err := scaffolding.ScopeBaseDir(cmd.Scope)
-	if err != nil {
-		return "", 0, err
-	}
-
-	// An explicit --harness overrides auto-detection.
-	if cmd.Harness != nil {
-		harness = *cmd.Harness
-	} else {
-		harness, err = scaffolding.DetectAIHarness(scopeDir)
-		if err != nil {
-			return "", 0, err
-		}
-	}
-
-	baseDir = filepath.Join(scopeDir, scaffolding.PlacementPrefix(harness, cmd.Artifact))
-	return baseDir, harness, nil
+	fmt.Println()
+	fmt.Println("Run 'adev <command> -h' for command-specific help.")
 }

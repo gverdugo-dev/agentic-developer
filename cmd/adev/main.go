@@ -4,22 +4,24 @@
 //
 // Usage:
 //
-//	adev <verb> <artifact> <name> [scope] [harness] [--force]
+//	adev new <artifact> <name> [--scope s] [--harness h] [--force]
+//	adev delete <artifact> <name> [--scope s] [--harness h]
 //	adev setup [harness]
 //	adev update
 //	adev version
 //
-//	verb:     new | delete
-//	artifact: skill | plugin | plugin-marketplace
-//	scope:    project (default, current dir) | local (whole machine, home)
-//	harness:  claude | codex | opencode (default: auto-detected from folders)
-//	--force:  overwrite an existing artifact instead of refusing
+//	artifact:  skill | plugin | plugin-marketplace
+//	--scope:   project (default, current dir) | local (whole machine, home)
+//	--harness: claude | codex | opencode (default: auto-detected from folders)
+//	--force:   overwrite an existing artifact instead of refusing (new only)
+//
+// Flags may appear before, after, or between the positional arguments.
 //
 // Examples:
 //
 //	adev new skill my-new-skill
-//	adev new plugin my-new-plugin local
-//	adev new skill my-new-skill project opencode
+//	adev new plugin my-new-plugin --scope local
+//	adev new skill my-new-skill --harness opencode
 //	adev new skill my-new-skill --force
 //	adev delete skill my-new-skill
 //	adev setup          # install adev's skills into the detected harness (home)
