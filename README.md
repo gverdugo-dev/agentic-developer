@@ -127,11 +127,31 @@ The command flows through three layers:
 
 1. **`main`** (`cmd/adev`) wires the program and maps any error to a
    non-zero exit code.
-2. **`cli`** (`internal/cli`) parses and validates the raw args into a typed
-   command, then dispatches it.
+2. **`cli`** (`internal/cli`) is the boundary: every invocation is a `Command`
+   that parses its own flags and runs itself; `Run` dispatches to the one named
+   on the command line.
 3. **`scaffolding`** (`internal/scaffolding`) is the domain core: the typed
    model, harness detection, the embedded layout config, and the create/remove
    engine.
+
+### Command structure
+
+The `cli` package uses the subcommand pattern (the same shape as the `go` tool):
+a small interface plus a registry that maps the first argument to a command.
+
+```go
+type Command interface {
+	Name() string            // the word typed on the command line
+	Synopsis() string        // one-line description for the help listing
+	Run(args []string) error // parses the args after the name, then runs
+}
+```
+
+`new`, `delete`, `setup`, `update`, and `version` are all sibling commands, each
+owning the parsing of its own flags. `new` and `delete` share one type
+(`scaffoldCmd`) parameterized by a verb, since they have the same grammar and
+differ only in create vs remove. Adding a command means implementing `Command`
+and registering it; the dispatcher does not change.
 
 ### Harness detection
 
@@ -149,8 +169,8 @@ Detection looks **only** in the scope base dir, the same place the artifact
 will be written, so it never infers a harness from elsewhere and then
 scaffolds a config dir into a project that didn't have one. If no marker is
 found there, the command errors and asks you to pass the harness explicitly.
-When several markers coexist, a fixed priority (Claude → Codex → opencode) keeps
-the result deterministic. An explicit `harness` argument bypasses detection.
+When several markers coexist, a fixed priority (Claude, Codex, opencode) keeps
+the result deterministic. An explicit `--harness` flag bypasses detection.
 
 ### Scope and placement
 
@@ -167,7 +187,7 @@ The final destination is `scopeBaseDir / placementPrefix / <name>`:
 | `plugin`             | `.claude/plugins/<name>/`        |
 | `plugin-marketplace` | `.claude/marketplaces/<name>/`   |
 
-So `new skill foo local` on a Claude setup creates `~/.claude/skills/foo/`.
+So `new skill foo --scope local` on a Claude setup creates `~/.claude/skills/foo/`.
 
 `adev setup` follows the same principle but is always local: it detects the
 harness from your home and installs the bundled skills into
