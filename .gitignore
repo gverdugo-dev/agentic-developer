@@ -8,6 +8,10 @@
 *.so
 *.dylib
 
+# Build output
+/bin/
+/dist/
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -30,3 +34,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Local scratch / reference examples (not part of the project)
+tmp/
