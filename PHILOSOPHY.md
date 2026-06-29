@@ -2,14 +2,14 @@
 
 This is the house style behind adev: how we think a skill (or a plugin) should
 be built. adev scaffolds the folders; this document explains the reasoning that
-should fill them. The four sections below are the load-bearing ideas — read them
+should fill them. The four sections below are the load-bearing ideas; read them
 in order.
 
 ## 0. Skills as operators / no-code automations
 
 Today a skill is the easiest way to automate something. With very little you can
 build something powerful: a single skill can encode a complete, ordered process
-— the steps, the decisions, the quality checks — and run it end to end. Treat a
+(the steps, the decisions, the quality checks) and run it end to end. Treat a
 skill as an *operator*: a small, self-contained worker that owns one job and does
 it the same way every time.
 
@@ -30,12 +30,12 @@ Scripts live in the skill's `scripts/` folder and follow these rules, always:
   be required to run a script. If something must be signed or parsed, reach for
   what the OS already provides before adding a dependency.
 - **Documented with comments.** Explain intent, not syntax. Name your constants
-  — no magic numbers (a threshold of `30` should say *why* it is 30).
+  (no magic numbers: a threshold of `30` should say *why* it is 30).
 - **Configuration via `.env`** when (and only when) it is needed. Load it from a
   small shared helper, not by scattering `os.environ` reads everywhere.
 - **Never commit secrets.** Keys and credentials stay out of the repo. Ship a
   committed `.env.example` (placeholders, no real values) and keep the real
-  `.env` and any credential files gitignored. Audit for security mistakes — no
+  `.env` and any credential files gitignored. Audit for security mistakes: no
   hardcoded secrets, no secrets in logs.
 - **Clean, simple code, in CLI form.** Each script is a small command-line tool.
 
@@ -51,7 +51,7 @@ Make scripts composable and predictable. The convention that works:
 - **Shared helpers in `scripts/lib/`.** Common concerns (env loading, HTTP,
   parsing) live in one place and are reused across scripts.
 
-### `scripts/CLAUDE.md` — the script library index
+### `scripts/CLAUDE.md`: the script library index
 
 Every `scripts/` folder carries a `CLAUDE.md` that acts as the library index: a
 short table of contents describing what each script does, its input/output
@@ -63,8 +63,8 @@ We use `CLAUDE.md` (not `README.md`) on purpose: the harness auto-loads a
 `CLAUDE.md` as context whenever the agent works inside that folder, so the script
 index is always in view without an explicit read.
 
-> A worked example of this whole section — deterministic CLIs, a `lib/` folder,
-> a committed `.env.example`, and a per-folder script index — lives in the
+> A worked example of this whole section, deterministic CLIs, a `lib/` folder,
+> a committed `.env.example`, and a per-folder script index, lives in the
 > `seo-analysis` skill under `tmp/.claude/plugins/billingham-marketing/skills/`.
 
 ## 2. References vs assets
@@ -73,10 +73,10 @@ The `SKILL.md` file is an index, not an encyclopedia. **It must stay under 200
 lines.** It points to the rest of the skill's knowledge, which lives in two
 clearly separated folders:
 
-- **`references/` — pure knowledge.** Information the agent reads to *understand*:
+- **`references/`, pure knowledge.** Information the agent reads to *understand*:
   guidelines, domain rules, scenarios, data-source notes. It is consumed by
   reading.
-- **`assets/` — knowledge that gets used to produce something.** Templates (an
+- **`assets/`, knowledge that gets used to produce something.** Templates (an
   HTML or markdown skeleton), data files (a JSON the script consumes), or any
   artifact that is an *input to an operation* rather than something to be read.
 
@@ -96,19 +96,19 @@ Parallel (and context-isolating) work is launched as subagents. What defines a
 subagent:
 
 - **One task, then return.** A subagent does a single job and hands its result
-  back to the parent. It does not run the whole process — it contributes one
+  back to the parent. It does not run the whole process; it contributes one
   piece of it.
 - **A subagent exists for judgment, not for running a CLI.** Its reason to exist
   is to produce an output that would be hard to get with code alone: it executes
   some actions and then *makes a decision* based on what its prompt tells it, and
   passes that decision back to the parent. **Don't spin up a subagent just to run
-  a script** — if a step is pure deterministic execution, the skill calls the
+  a script.** If a step is pure deterministic execution, the skill calls the
   script directly.
 - **It also keeps the parent's context clean.** A subagent works in its own
   context and returns only its conclusion, so the intermediate noise never
-  reaches the parent. That isolation is a real benefit — but it's secondary to
+  reaches the parent. That isolation is a real benefit, but it's secondary to
   the judgment the subagent provides.
-- **Agents can run scripts — as part of deciding.** An agent may run
+- **Agents can run scripts, as part of deciding.** An agent may run
   deterministic CLIs to gather or check data, but its value is the decision it
   reaches on top of them, not the execution itself.
 - **Keep agents generic.** The more reusable an agent is, the better. Push the
@@ -116,14 +116,14 @@ subagent:
 
 Division of labor:
 
-- **The skill orchestrates and decides.** The skill runs the orchestration —
+- **The skill orchestrates and decides.** The skill runs the orchestration:
   sequencing phases, fanning out independent work, and making the final decision.
   The agents are generic workers; the skill is the conductor.
 - **Skills have no subagents of their own; plugins do.** A plugin ships
   `agents/*.md` definitions that its skills launch (via the native subagent
   integration). So a process that needs subagents wants to be a plugin.
-- **A plugin is a package that groups multiple skills** — a company department, a
-  single larger process — and provides the generic agents those skills
+- **A plugin is a package that groups multiple skills:** a company department, a
+  single larger process, and it provides the generic agents those skills
   coordinate.
 
 A subagent runs until it produces its result and returns; it cannot pause to ask
@@ -155,7 +155,7 @@ to run it. `references/setup.md` is the skill's setup guide; the `setup.sh` /
 ## 5. Plugins: logical containers of artifacts
 
 A plugin is a **logical container of AI artifacts**. You reach for one when a set
-of artifacts belongs together — either because they are **coherent with each
+of artifacts belongs together, either because they are **coherent with each
 other**, or because they serve a **specific profile of people**. That is why a
 plugin is scoped to a concrete process, a team, or a department: the plugin is the
 boundary that says *these artifacts go together*, and the unit in which they ship
@@ -163,8 +163,8 @@ and are installed.
 
 Its two key pieces:
 
-- **Skills** — the processes, and the orchestrators that run them.
-- **Agents** — the generic, single-task workers the skills coordinate (see §3.1).
+- **Skills:** the processes, and the orchestrators that run them.
+- **Agents:** the generic, single-task workers the skills coordinate (see §3.1).
 
 Agents are what make a plugin worth it: they let the plugin's skills become **more
 powerful** than a lone skill could be. A standalone skill has no subagents; a
@@ -190,5 +190,5 @@ Before calling a skill done, verify:
 - [ ] Independent steps are parallelized; skill-vs-plugin chosen deliberately.
 - [ ] Agents are generic and single-task; the skill owns orchestration and the
       final decision.
-- [ ] Every subagent earns its place with judgment — none exists only to run a
+- [ ] Every subagent earns its place with judgment; none exists only to run a
       script (call the script directly instead).

@@ -1,9 +1,9 @@
-# scripts/ — script index
+# scripts/ script index
 
 Deterministic helpers for adev-plugin-marketplace-builder. Standard tools only,
 no external dependencies. Update this index whenever a script is added.
 
-## `setup.sh` / `setup.bat` — preflight check
+## `setup.sh` / `setup.bat`: preflight check
 
 Verifies the skill's requirements before any work: that the `adev` CLI is on
 PATH (required) and warns if `git` is missing (recommended for hosting). Prints

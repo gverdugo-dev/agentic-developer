@@ -1,7 +1,7 @@
 # Plugin marketplace reference
 
 The standard Claude Code marketplace format: the catalog file, plugin sources,
-versioning, and hosting. This is convention, not house opinion — follow it.
+versioning, and hosting. This is convention, not house opinion, so follow it.
 
 ## Contents
 
@@ -40,11 +40,11 @@ Required fields:
 
 Useful optional fields:
 
-- `description` — one line about the catalog.
-- `metadata.pluginRoot` — a base dir prepended to relative sources, so
+- `description`: one line about the catalog.
+- `metadata.pluginRoot`: a base dir prepended to relative sources, so
   `"./plugins"` lets you write `"source": "formatter"` instead of
   `"source": "./plugins/formatter"`.
-- `$schema` — JSON Schema URL for editor autocomplete (ignored at load time).
+- `$schema`: JSON Schema URL for editor autocomplete (ignored at load time).
 
 ```json
 {
@@ -82,14 +82,14 @@ The `source` tells Claude Code where to fetch that plugin from:
 The git sources (`github`, `url`, `git-subdir`) accept optional `ref` (branch or
 tag) and `sha` (full 40-char commit). When both are set, `sha` wins.
 
-A single marketplace can mix sources — list local plugins by relative path and
+A single marketplace can mix sources: list local plugins by relative path and
 external ones by `github`/`url`, each pinned independently.
 
 ## Versioning
 
 - **Pin a `version` string** (in the entry or the plugin's `plugin.json`): users
   only get updates when you bump it. Bump on every release.
-- **Omit `version`** (git-hosted): every commit counts as a new version — users
+- **Omit `version`** (git-hosted): every commit counts as a new version, users
   track the latest commit automatically.
 
 Pick pinned versions for stable, controlled rollouts; omit for fast-moving
@@ -122,6 +122,6 @@ refresh with `/plugin marketplace update`.
 - **Relative paths + URL distribution don't mix**: relative `./` sources only
   resolve when users add the marketplace from a git or local source. If you
   distribute a direct URL to the JSON, only that file is downloaded and relative
-  paths silently fail — use `github`/`url`/`npm` sources instead.
+  paths silently fail, so use `github`/`url`/`npm` sources instead.
 - **No `../`**: a plugin can't reference files outside the marketplace root;
   plugins are copied to a cache on install.

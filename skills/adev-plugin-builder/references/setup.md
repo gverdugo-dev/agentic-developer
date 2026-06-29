@@ -1,7 +1,7 @@
-# Setup — adev-plugin-builder
+# Setup: adev-plugin-builder
 
 What this skill needs before it runs. The preflight `scripts/setup.sh`
-(`scripts/setup.bat` on Windows) checks it automatically — run it first.
+(`scripts/setup.bat` on Windows) checks it automatically. Run it first.
 
 ## Requirements
 
@@ -9,7 +9,7 @@ What this skill needs before it runs. The preflight `scripts/setup.sh`
   fills in: `adev new plugin <name>`. Repo:
   https://github.com/gverdugo-dev/agentic-developer
 
-This skill has no other external dependencies — it is guidance plus templates,
+This skill has no other external dependencies. It is guidance plus templates,
 not a service integration, so there are no API keys or `.env` to configure.
 
 ## Run the check

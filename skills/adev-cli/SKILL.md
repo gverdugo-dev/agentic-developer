@@ -8,7 +8,7 @@ description: "Drives the adev CLI to scaffold and remove AI coding-agent artifac
 `adev` is a CLI and an opinionated system for creating AI coding-agent
 artifacts. It scaffolds the correct folder layout for a **skill**, **plugin**,
 or **plugin-marketplace** inside the right harness config directory (Claude
-Code, Codex, opencode), so a well-formed artifact is one command away — no
+Code, Codex, opencode), so a well-formed artifact is one command away, with no
 guessing where files go or what the manifest is called.
 
 - Repository: https://github.com/gverdugo-dev/agentic-developer
@@ -35,9 +35,9 @@ adev setup  [harness]
 - `scope`: `project` (default) | `local`
 - `harness`: `claude` | `codex` | `opencode` (auto-detected when omitted)
 
-For the full semantics — argument order, scope and placement, harness detection,
+For the full semantics (argument order, scope and placement, harness detection,
 overwrite behavior, the exact destination paths, and what each command
-scaffolds — read [references/commands.md](references/commands.md).
+scaffolds), read [references/commands.md](references/commands.md).
 
 ## After scaffolding
 

@@ -23,8 +23,8 @@ const updateRepo = "gverdugo-dev/agentic-developer"
 
 // runUpdate replaces the running adev binary with the latest release build for
 // this OS/arch. It downloads the matching asset from GitHub Releases, verifies
-// its checksum, and atomically swaps the executable in place — no Go toolchain
-// or external tools required.
+// its checksum, and atomically swaps the executable in place, with no Go
+// toolchain or external tools required.
 func runUpdate() error {
 	client := &http.Client{Timeout: 60 * time.Second}
 
@@ -144,7 +144,7 @@ func verifyChecksum(c *http.Client, url, asset string, data []byte) error {
 
 	sum := sha256.Sum256(data)
 	if got := hex.EncodeToString(sum[:]); got != want {
-		return fmt.Errorf("checksum mismatch for %s — aborting", asset)
+		return fmt.Errorf("checksum mismatch for %s, aborting", asset)
 	}
 	return nil
 }

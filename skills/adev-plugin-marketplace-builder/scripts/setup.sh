@@ -17,7 +17,7 @@ fi
 
 # git is recommended for hosting the marketplace remotely (not required here).
 if ! command -v git >/dev/null 2>&1; then
-	echo "WARNING: git not found — you'll need it to host the marketplace on a remote (GitHub/GitLab)." >&2
+	echo "WARNING: git not found. You'll need it to host the marketplace on a remote (GitHub/GitLab)." >&2
 fi
 
 if [ "$missing" -ne 0 ]; then

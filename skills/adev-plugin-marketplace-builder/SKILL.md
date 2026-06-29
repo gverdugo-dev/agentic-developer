@@ -1,13 +1,13 @@
 ---
 name: adev-plugin-marketplace-builder
-description: "Guides building a plugin-marketplace the standard way — the marketplace.json catalog, plugin sources, versioning, and hosting it on GitHub or another git remote. Use when filling in a marketplace scaffolded by `adev new plugin-marketplace`, writing a marketplace.json, listing plugins for a team or company, or when the user asks how to build or host a plugin marketplace."
+description: "Guides building a plugin-marketplace the standard way: the marketplace.json catalog, plugin sources, versioning, and hosting it on GitHub or another git remote. Use when filling in a marketplace scaffolded by `adev new plugin-marketplace`, writing a marketplace.json, listing plugins for a team or company, or when the user asks how to build or host a plugin marketplace."
 ---
 
 # adev-plugin-marketplace-builder
 
 Turns an empty marketplace scaffold (from `adev new plugin-marketplace`) into a
-working plugin catalog. A marketplace is **not very opinionated** — it follows
-the standard Claude Code format — so this skill leans on the official conventions
+working plugin catalog. A marketplace is **not very opinionated** (it follows
+the standard Claude Code format), so this skill leans on the official conventions
 and keeps the house touch light. It is the orchestrator; the detail lives in the
 references.
 
@@ -22,7 +22,7 @@ scripts\setup.bat          # Windows
 
 ## What a plugin marketplace is
 
-A plugin marketplace is a **remote catalog where plugins live** — a
+A plugin marketplace is a **remote catalog where plugins live**: a
 `.claude-plugin/marketplace.json` that lists plugins and where to fetch each one.
 It is usually scoped to a **team or a company**, and the good practice is to host
 it on **GitHub or another git remote** so it gets version control and updates for
@@ -45,7 +45,7 @@ Copy this checklist and work top to bottom:
 **1. Scope the catalog.** Decide who it serves (a team, a company) and which
 plugins it lists. One marketplace can reference plugins from many repos.
 
-**2. Scaffold it with adev.** Let adev create the skeleton — don't make it by
+**2. Scaffold it with adev.** Let adev create the skeleton, don't make it by
 hand:
 
 ```bash
@@ -63,8 +63,8 @@ with `adev delete plugin-marketplace <name>`.)
 [references/marketplace.md](references/marketplace.md).
 
 **4. Set sources and versioning.** For each plugin, choose where it's fetched
-from — a relative path (`./plugins/<name>` in this same repo), a `github` repo, a
-git `url`, a `git-subdir`, or `npm` — and decide versioning: pin a `version`
+from (a relative path (`./plugins/<name>` in this same repo), a `github` repo, a
+git `url`, a `git-subdir`, or `npm`) and decide versioning: pin a `version`
 string, or omit it to track the git commit SHA. See
 [references/marketplace.md](references/marketplace.md).
 
@@ -79,10 +79,10 @@ JSON.
 
 ## What this skill ships
 
-- [references/marketplace.md](references/marketplace.md) — the marketplace.json
+- [references/marketplace.md](references/marketplace.md): the marketplace.json
   schema, plugin sources, versioning, hosting, and how users add/update it.
-- [references/setup.md](references/setup.md) — this skill's own requirements.
-- [assets/marketplace.json](assets/marketplace.json) — a template to fill in.
+- [references/setup.md](references/setup.md): this skill's own requirements.
+- [assets/marketplace.json](assets/marketplace.json): a template to fill in.
 
 To build the plugins this marketplace lists, use `adev-plugin-builder` (and
 `adev-skill-builder` for their skills).

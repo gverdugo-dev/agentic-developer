@@ -1,8 +1,8 @@
 # agentic-dev (`adev`)
 
-A small, agentic-first CLI — invoked as **`adev`** — for scaffolding and
-removing AI coding-agent artifacts — **skills**, **plugins**, and
-**plugin-marketplaces** — with the correct folder layout for the harness you use
+A small, agentic-first CLI, invoked as **`adev`**, for scaffolding and
+removing AI coding-agent artifacts (**skills**, **plugins**, and
+**plugin-marketplaces**) with the correct folder layout for the harness you use
 (Claude Code, Codex, opencode).
 
 It ships with opinionated, built-in layouts so that creating a well-formed
@@ -54,7 +54,7 @@ adev setup claude   # or target a specific harness
 
 `setup` always writes to the **user's** config (home), never the project.
 
-To upgrade later, run `adev update` — it self-updates to the latest release in
+To upgrade later, run `adev update`: it self-updates to the latest release in
 place. Check your version with `adev version`.
 
 > Building from source instead? See [Development](#development).
@@ -70,12 +70,12 @@ adev version
 
 | Argument   | Required | Values                                      | Default                  |
 | ---------- | -------- | ------------------------------------------- | ------------------------ |
-| `verb`     | yes      | `new`, `delete`                             | —                        |
-| `artifact` | yes      | `skill`, `plugin`, `plugin-marketplace`     | —                        |
-| `name`     | yes      | any name without `/`, `\` or `..`           | —                        |
+| `verb`     | yes      | `new`, `delete`                             | (none)                   |
+| `artifact` | yes      | `skill`, `plugin`, `plugin-marketplace`     | (none)                   |
+| `name`     | yes      | any name without `/`, `\` or `..`           | (none)                   |
 | `scope`    | no       | `project`, `local`                          | `project`                |
 | `harness`  | no       | `claude`, `codex`, `opencode`               | auto-detected            |
-| `--force`  | no       | flag — overwrite an existing artifact       | off (refuse if exists)   |
+| `--force`  | no       | flag to overwrite an existing artifact      | off (refuse if exists)   |
 
 > Positional optionals: to pass `harness` you must also pass `scope` before it.
 > `--force` is a flag, so it can go anywhere in the command.
@@ -121,17 +121,17 @@ adev new skill my-new-skill --force
 
 The command flows through three layers:
 
-1. **`main`** (`cmd/adev`) — wires the program and maps any error to a
+1. **`main`** (`cmd/adev`) wires the program and maps any error to a
    non-zero exit code.
-2. **`cli`** (`internal/cli`) — parses and validates the raw args into a typed
+2. **`cli`** (`internal/cli`) parses and validates the raw args into a typed
    command, then dispatches it.
-3. **`scaffolding`** (`internal/scaffolding`) — the domain core: the typed
+3. **`scaffolding`** (`internal/scaffolding`) is the domain core: the typed
    model, harness detection, the embedded layout config, and the create/remove
    engine.
 
 ### Harness detection
 
-Detection looks for a tool-specific config directory, **not** for `AGENTS.md` —
+Detection looks for a tool-specific config directory, **not** for `AGENTS.md`:
 that file is the cross-tool open standard, so it doesn't identify a single
 harness.
 
@@ -141,8 +141,8 @@ harness.
 | Codex    | `.codex`         |
 | opencode | `.opencode`      |
 
-Detection looks **only** in the scope base dir — the same place the artifact
-will be written — so it never infers a harness from elsewhere and then
+Detection looks **only** in the scope base dir, the same place the artifact
+will be written, so it never infers a harness from elsewhere and then
 scaffolds a config dir into a project that didn't have one. If no marker is
 found there, the command errors and asks you to pass the harness explicitly.
 When several markers coexist, a fixed priority (Claude → Codex → opencode) keeps

@@ -71,7 +71,7 @@ if [ -n "$shacmd" ] && fetch "$base/checksums.txt" "$tmp/checksums.txt" 2>/dev/n
 	if [ -n "$expected" ]; then
 		actual="$(cd "$tmp" && $shacmd "$asset" | awk '{print $1}')"
 		if [ "$expected" != "$actual" ]; then
-			echo "adev: checksum mismatch for $asset — aborting." >&2
+			echo "adev: checksum mismatch for $asset, aborting." >&2
 			exit 1
 		fi
 	fi
@@ -86,7 +86,7 @@ echo "adev: installed to $dir/$BIN" >&2
 
 case ":$PATH:" in
 	*":$dir:"*) ;;
-	*) echo "adev: NOTE — $dir is not on your PATH. Add it, e.g.:  export PATH=\"$dir:\$PATH\"" >&2 ;;
+	*) echo "adev: NOTE: $dir is not on your PATH. Add it, e.g.:  export PATH=\"$dir:\$PATH\"" >&2 ;;
 esac
 
 echo "adev: done. Run 'adev setup' to install adev's skills into your harness." >&2

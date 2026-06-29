@@ -1,6 +1,6 @@
 ---
 name: adev-plugin-builder
-description: "Guides building a well-formed plugin the opinionated adev way — the plugin boundary, plugin.json, generic single-task agents, and the skills that orchestrate them. Use when filling in a plugin scaffolded by `adev new plugin`, writing a plugin.json or its agents, deciding what belongs in a plugin, or when the user asks how to build a good plugin."
+description: "Guides building a well-formed plugin the opinionated adev way: the plugin boundary, plugin.json, generic single-task agents, and the skills that orchestrate them. Use when filling in a plugin scaffolded by `adev new plugin`, writing a plugin.json or its agents, deciding what belongs in a plugin, or when the user asks how to build a good plugin."
 ---
 
 # adev-plugin-builder
@@ -20,12 +20,12 @@ scripts\setup.bat          # Windows
 
 ## What a plugin is (the house style)
 
-A plugin is a **logical container of AI artifacts** that belong together —
+A plugin is a **logical container of AI artifacts** that belong together,
 because they're coherent with each other, or serve a specific profile of people
 (a process, a team, a department). Its two key pieces are **skills** (the
 processes) and **agents** (the generic, single-task workers the skills
 coordinate). Agents are what make a plugin's skills more powerful than a
-standalone skill. Full principles: [references/philosophy.md](references/philosophy.md).
+standalone skill. Full principles are in [references/philosophy.md](references/philosophy.md).
 
 ## Build workflow
 
@@ -51,7 +51,7 @@ orchestrates. Map which steps are deterministic (→ scripts), which need judgme
 (→ agents), and which are independent (→ parallel). See
 [references/agents.md](references/agents.md) for what makes a good agent.
 
-**3. Scaffold it with adev.** Let adev create the folder skeleton — don't make it
+**3. Scaffold it with adev.** Let adev create the folder skeleton, don't make it
 by hand:
 
 ```bash
@@ -83,14 +83,14 @@ orchestration and the final decision. How skills and agents connect:
 
 ## What this skill ships
 
-- [references/philosophy.md](references/philosophy.md) — plugins and subagents in
+- [references/philosophy.md](references/philosophy.md): plugins and subagents in
   full, plus the house style its artifacts inherit.
-- [references/structure.md](references/structure.md) — the plugin folder layout,
+- [references/structure.md](references/structure.md): the plugin folder layout,
   `plugin.json`, and how skills launch agents.
-- [references/agents.md](references/agents.md) — how to write a generic,
+- [references/agents.md](references/agents.md): how to write a generic,
   single-task agent.
-- [references/setup.md](references/setup.md) — this skill's own requirements.
-- [assets/plugin.json](assets/plugin.json), [assets/agent.md](assets/agent.md) —
+- [references/setup.md](references/setup.md): this skill's own requirements.
+- [assets/plugin.json](assets/plugin.json), [assets/agent.md](assets/agent.md):
   templates to fill in.
 
 To package or distribute the plugin through a marketplace, use

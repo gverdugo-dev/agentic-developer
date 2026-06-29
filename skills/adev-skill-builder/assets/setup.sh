@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TEMPLATE — preflight for <skill-name>.
+# TEMPLATE: preflight for <skill-name>.
 # Drop this into the new skill's scripts/ folder and customize the checks for
 # what the skill actually needs. Delete the examples that don't apply.
 set -euo pipefail
@@ -14,10 +14,10 @@ fail() {
 # --- Examples: keep what applies, delete the rest --------------------------
 
 # Python, if the skill's scripts use it:
-# command -v python3 >/dev/null 2>&1 || fail "python3 not found — install Python 3"
+# command -v python3 >/dev/null 2>&1 || fail "python3 not found, install Python 3"
 
 # A config file with credentials (never committed):
-# [ -f "$here/.env" ] || fail "scripts/.env missing — copy scripts/.env.example and fill it"
+# [ -f "$here/.env" ] || fail "scripts/.env missing: copy scripts/.env.example and fill it"
 
 # A required CLI tool on PATH:
 # command -v <tool> >/dev/null 2>&1 || fail "<tool> not found on PATH"

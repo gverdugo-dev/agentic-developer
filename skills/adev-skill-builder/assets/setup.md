@@ -1,13 +1,13 @@
-# Setup — <skill-name>
+# Setup: <skill-name>
 
-TEMPLATE — drop this into the new skill's `references/` folder and fill in the
+TEMPLATE: drop this into the new skill's `references/` folder and fill in the
 blanks. Describes what the skill needs before it can run; the preflight
 `scripts/setup.sh` (`scripts/setup.bat` on Windows) checks these automatically.
 
 ## Requirements
 
 - <e.g. Python 3, if the scripts use it>
-- <e.g. scripts/.env with API_KEY=... — copy from scripts/.env.example>
+- <e.g. scripts/.env with API_KEY=..., copy from scripts/.env.example>
 - <e.g. a CLI tool on PATH>
 
 ## How to satisfy them

@@ -6,9 +6,9 @@ How every `adev` command parses its arguments and what it does on disk.
 
 - Synopsis
 - Arguments
-- `adev new` — scaffold an artifact
-- `adev delete` — remove an artifact
-- `adev setup` — install adev's own skills
+- `adev new`: scaffold an artifact
+- `adev delete`: remove an artifact
+- `adev setup`: install adev's own skills
 - Harness detection
 - Scope and placement
 - What gets scaffolded
@@ -25,15 +25,15 @@ adev setup  [harness]
 
 `new` and `delete` are positional: the first three words are always
 `<verb> <artifact> <name>`. `scope` and `harness` are positional optionals in
-that order — to pass `harness` you must also pass `scope` before it. `--force`
+that order: to pass `harness` you must also pass `scope` before it. `--force`
 is a flag, so it can appear anywhere in the command.
 
 ## Arguments
 
 | Argument   | Required | Values                                    | Default                |
 | ---------- | -------- | ----------------------------------------- | ---------------------- |
-| `artifact` | yes      | `skill`, `plugin`, `plugin-marketplace`   | —                      |
-| `name`     | yes      | any name without `/`, `\`, or `..`        | —                      |
+| `artifact` | yes      | `skill`, `plugin`, `plugin-marketplace`   | (none)                 |
+| `name`     | yes      | any name without `/`, `\`, or `..`        | (none)                 |
 | `scope`    | no       | `project`, `local`                        | `project`              |
 | `harness`  | no       | `claude`, `codex`, `opencode`             | auto-detected          |
 | `--force`  | no       | flag                                      | off (refuse if exists) |
@@ -42,7 +42,7 @@ is a flag, so it can appear anywhere in the command.
 one containing `/`, `\`, or `..`, is rejected to keep the write inside the target
 directory.
 
-## `adev new` — scaffold an artifact
+## `adev new`: scaffold an artifact
 
 Creates the artifact's folder structure at the resolved destination (see
 *Scope and placement*).
@@ -57,11 +57,11 @@ Behavior:
 3. Create the layout: paths ending in `/` become directories; the rest become
    empty files. Parent directories are created as needed.
 
-The default refusal is deliberate — it prevents clobbering an artifact you have
+The default refusal is deliberate: it prevents clobbering an artifact you have
 already started. Reach for `--force` only when you mean to discard the current
 contents.
 
-## `adev delete` — remove an artifact
+## `adev delete`: remove an artifact
 
 Removes a previously scaffolded artifact: the single root folder `<dest>/<name>`
 at the resolved destination. The whole scaffold lives under that one folder, so
@@ -73,7 +73,7 @@ Safeguards:
 - if the target does not exist, or is not a directory, it errors instead of
   deleting anything.
 
-## `adev setup` — install adev's own skills
+## `adev setup`: install adev's own skills
 
 Installs the skills bundled in the binary (`adev-cli`, `adev-skill-builder`,
 `adev-plugin-builder`, `adev-plugin-marketplace-builder`) so the agent learns
@@ -98,7 +98,7 @@ directory:
 
 Rules:
 
-- Detection looks **only in the base directory** where the command will write —
+- Detection looks **only in the base directory** where the command will write:
   the project dir for `new`/`delete` (project scope), the user's home for
   `setup`. It never infers a harness from somewhere else and then writes a
   config dir where there wasn't one.
@@ -138,8 +138,8 @@ pair errors.
 | Harness  | skill | plugin | plugin-marketplace |
 | -------- | :---: | :----: | :----------------: |
 | Claude   |  yes  |  yes   |        yes         |
-| Codex    |  yes  |   —    |         —          |
-| opencode |  yes  |  yes   |         —          |
+| Codex    |  yes  |   no   |         no         |
+| opencode |  yes  |  yes   |         no         |
 
 Typical Claude layouts:
 
