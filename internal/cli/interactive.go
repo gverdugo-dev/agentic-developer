@@ -33,6 +33,8 @@ func runNewForm(defaultScope, defaultHarness string, defaultForce bool) (scaffol
 	harness := defaultHarness
 	force := defaultForce
 
+	// Each field lives in its own group so the form shows one question per
+	// screen (a wizard) instead of all five at once.
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
@@ -40,26 +42,30 @@ func runNewForm(defaultScope, defaultHarness string, defaultForce bool) (scaffol
 				Description("What to scaffold").
 				Options(artifactOptions()...).
 				Value(&artifact),
-
+		),
+		huh.NewGroup(
 			huh.NewInput().
 				Title("Name").
 				Description("kebab-case, no slashes").
 				Placeholder("my-new-skill").
 				Value(&name).
 				Validate(validateArtifactName),
-
+		),
+		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Scope").
 				Description("Where it lives").
 				Options(scopeOptions()...).
 				Value(&scope),
-
+		),
+		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Harness").
 				Description("Target agent (auto-detect from the folders by default)").
 				Options(harnessOptions()...).
 				Value(&harness),
-
+		),
+		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Overwrite if it already exists?").
 				Value(&force),
