@@ -98,13 +98,19 @@ subagent:
 - **One task, then return.** A subagent does a single job and hands its result
   back to the parent. It does not run the whole process — it contributes one
   piece of it.
-- **The point is a clean context window.** A subagent works in its own context
-  and returns only its conclusion, so it never pollutes the parent's context with
-  the intermediate noise. This — not just speed — is the main reason to reach for
-  one.
-- **Agents can run scripts.** Some agents are nothing more than *script runners
-  and validators/checkers*: they execute a deterministic CLI, check the result,
-  and report back. That is a perfectly good agent.
+- **A subagent exists for judgment, not for running a CLI.** Its reason to exist
+  is to produce an output that would be hard to get with code alone: it executes
+  some actions and then *makes a decision* based on what its prompt tells it, and
+  passes that decision back to the parent. **Don't spin up a subagent just to run
+  a script** — if a step is pure deterministic execution, the skill calls the
+  script directly.
+- **It also keeps the parent's context clean.** A subagent works in its own
+  context and returns only its conclusion, so the intermediate noise never
+  reaches the parent. That isolation is a real benefit — but it's secondary to
+  the judgment the subagent provides.
+- **Agents can run scripts — as part of deciding.** An agent may run
+  deterministic CLIs to gather or check data, but its value is the decision it
+  reaches on top of them, not the execution itself.
 - **Keep agents generic.** The more reusable an agent is, the better. Push the
   specifics into the prompt the skill hands it, not into the agent definition.
 
@@ -138,3 +144,5 @@ Before calling a skill done, verify:
 - [ ] Independent steps are parallelized; skill-vs-plugin chosen deliberately.
 - [ ] Agents are generic and single-task; the skill owns orchestration and the
       final decision.
+- [ ] Every subagent earns its place with judgment — none exists only to run a
+      script (call the script directly instead).
