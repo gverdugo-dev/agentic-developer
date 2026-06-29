@@ -26,14 +26,17 @@ Reach for `adev` instead of creating files by hand whenever you need to:
 ## Command quick reference
 
 ```
-adev new    <artifact> <name> [scope] [harness] [--force]
-adev delete <artifact> <name> [scope] [harness]
+adev new    <artifact> <name> [--scope s] [--harness h] [--force]
+adev delete <artifact> <name> [--scope s] [--harness h]
 adev setup  [harness]
 ```
 
 - `artifact`: `skill` | `plugin` | `plugin-marketplace`
-- `scope`: `project` (default) | `local`
-- `harness`: `claude` | `codex` | `opencode` (auto-detected when omitted)
+- `--scope`: `project` (default) | `local`
+- `--harness`: `claude` | `codex` | `opencode` (auto-detected when omitted)
+- `--force`: overwrite an existing artifact (`new` only)
+
+Flags may appear before, after, or between the positional arguments.
 
 For the full semantics (argument order, scope and placement, harness detection,
 overwrite behavior, the exact destination paths, and what each command

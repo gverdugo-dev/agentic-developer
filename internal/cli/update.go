@@ -21,6 +21,19 @@ import (
 // updateRepo is the GitHub repository adev updates itself from.
 const updateRepo = "gverdugo-dev/agentic-developer"
 
+// updateCmd implements the update command: it self-updates the binary from the
+// latest GitHub release.
+type updateCmd struct{}
+
+// Name returns the command's CLI word.
+func (updateCmd) Name() string { return "update" }
+
+// Synopsis returns the one-line help for the command.
+func (updateCmd) Synopsis() string { return "self-update to the latest release" }
+
+// Run self-updates the running binary. It takes no arguments.
+func (updateCmd) Run(args []string) error { return runUpdate() }
+
 // runUpdate replaces the running adev binary with the latest release build for
 // this OS/arch. It downloads the matching asset from GitHub Releases, verifies
 // its checksum, and atomically swaps the executable in place, with no Go

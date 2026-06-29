@@ -7,13 +7,25 @@ import (
 	"path/filepath"
 )
 
-// runSetup installs adev's own bundled skills into the user's harness so the
-// agent learns how to use the tool. It always targets the user's config (home),
-// never the project. The harness is taken from the optional argument, or
+// setupCmd implements the setup command: it installs adev's own bundled skills
+// into a harness under the user's home.
+type setupCmd struct{}
+
+// Name returns the command's CLI word.
+func (setupCmd) Name() string { return "setup" }
+
+// Synopsis returns the one-line help for the command.
+func (setupCmd) Synopsis() string {
+	return "install adev's bundled skills into a harness (home)"
+}
+
+// Run installs adev's own bundled skills into the user's harness so the agent
+// learns how to use the tool. It always targets the user's config (home), never
+// the project. The harness is taken from the optional positional argument, or
 // auto-detected from the user's home when omitted.
 //
 // args are the arguments after "setup", i.e. an optional harness name.
-func runSetup(args []string) error {
+func (setupCmd) Run(args []string) error {
 	home, err := scaffolding.ScopeBaseDir(scaffolding.Local)
 	if err != nil {
 		return err
