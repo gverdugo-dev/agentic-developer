@@ -90,22 +90,39 @@ depend on a previous result. Independent steps should run in parallel. Whenever 
 skill has work that doesn't depend on other work, it can fan that work out
 instead of doing it serially.
 
-### 3.1 Parallelization via subagents
+### 3.1 Subagents: one task, a clean context
 
-Parallel work is launched as subagents — but with a key constraint:
+Parallel (and context-isolating) work is launched as subagents. What defines a
+subagent:
 
-- **Skills have no subagents of their own; plugins do.** A plugin can ship
+- **One task, then return.** A subagent does a single job and hands its result
+  back to the parent. It does not run the whole process — it contributes one
+  piece of it.
+- **The point is a clean context window.** A subagent works in its own context
+  and returns only its conclusion, so it never pollutes the parent's context with
+  the intermediate noise. This — not just speed — is the main reason to reach for
+  one.
+- **Agents can run scripts.** Some agents are nothing more than *script runners
+  and validators/checkers*: they execute a deterministic CLI, check the result,
+  and report back. That is a perfectly good agent.
+- **Keep agents generic.** The more reusable an agent is, the better. Push the
+  specifics into the prompt the skill hands it, not into the agent definition.
+
+Division of labor:
+
+- **The skill orchestrates and decides.** The skill runs the orchestration —
+  sequencing phases, fanning out independent work, and making the final decision.
+  The agents are generic workers; the skill is the conductor.
+- **Skills have no subagents of their own; plugins do.** A plugin ships
   `agents/*.md` definitions that its skills launch (via the native subagent
-  integration) to run phases concurrently.
-- **For long processes, decide up front: skill or plugin?** If the process needs
-  its own subagents, or groups several related skills, it wants to be a plugin.
-- **A plugin is a package that groups multiple skills** — for a company
-  department, or for a single larger process — and provides the subagents those
-  skills coordinate.
+  integration). So a process that needs subagents wants to be a plugin.
+- **A plugin is a package that groups multiple skills** — a company department, a
+  single larger process — and provides the generic agents those skills
+  coordinate.
 
 A subagent runs until it produces its result and returns; it cannot pause to ask
-the user. So design phases accordingly: a subagent runs to a proposal, and the
-main conversation is where you stop, show the user, and wait for approval before
+the user. Design phases accordingly: a subagent runs to a proposal, and the main
+conversation is where you stop, show the user, and wait for approval before
 feeding the next phase.
 
 ## Checklist
@@ -119,3 +136,5 @@ Before calling a skill done, verify:
 - [ ] `scripts/CLAUDE.md` lists every script and is up to date.
 - [ ] Knowledge is split correctly between `references/` and `assets/`.
 - [ ] Independent steps are parallelized; skill-vs-plugin chosen deliberately.
+- [ ] Agents are generic and single-task; the skill owns orchestration and the
+      final decision.
