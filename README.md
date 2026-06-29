@@ -244,8 +244,17 @@ gofmt -l .      # formatting check (empty output = clean)
 go doc ./internal/scaffolding   # browse the package docs
 ```
 
+## Known limitations
+
+- **No scaffolding inside a plugin.** `adev new skill` always places the skill in
+  `.<harness>/skills/`, not inside a plugin's `plugins/<plugin>/skills/`. Building
+  a plugin's skills with `adev` therefore needs a manual move for now. Planned: a
+  way to scaffold an artifact *into* a target plugin.
+
 ## Roadmap
 
 [~] Create adev skills framework (structure scaffolded; content WIP).
 [x] Install skills inside the user's harness on setup (`adev setup`).
 [x] Detect folder exists (refuse overwrite unless `--force`)
+[ ] Scaffold artifacts inside a target plugin (`plugins/<plugin>/skills/...`).
+[ ] Install script (install.sh / install.bat) for binary distribution.
