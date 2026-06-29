@@ -59,6 +59,18 @@ func (c scaffoldCmd) Run(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// `adev new` with no positionals on a terminal opens an interactive form
+	// instead of erroring; the flags seed its defaults. delete and any
+	// non-terminal caller (a script or CI) fall through to the usage error.
+	if c.verb == scaffolding.New && len(positional) == 0 && interactiveAvailable() {
+		req, err := runNewForm(*scopeStr, *harnessStr, force)
+		if err != nil {
+			return err
+		}
+		return createArtifact(req)
+	}
+
 	if len(positional) < 2 {
 		fs.Usage()
 		return fmt.Errorf("provide the artifact and the artifact name")
