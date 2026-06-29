@@ -32,12 +32,13 @@ Copy this checklist and work top to bottom:
 ```
 - [ ] 1. Define the job + 2-3 concrete use cases
 - [ ] 2. Decide: skill or plugin?
-- [ ] 3. Map the steps: deterministic vs judgment, parallel vs dependent
-- [ ] 4. Write the deterministic scripts (+ scripts/CLAUDE.md index)
-- [ ] 5. Add the preflight (scripts/setup.sh|.bat + references/setup.md)
-- [ ] 6. Split knowledge: references/ vs assets/
-- [ ] 7. Write SKILL.md as an index (<200 lines) + frontmatter
-- [ ] 8. Verify against the checklist
+- [ ] 3. Scaffold it: adev new skill <name> [scope] [harness]
+- [ ] 4. Map the steps: deterministic vs judgment, parallel vs dependent
+- [ ] 5. Write the deterministic scripts (+ scripts/CLAUDE.md index)
+- [ ] 6. Add the preflight (scripts/setup.sh|.bat + references/setup.md)
+- [ ] 7. Split knowledge: references/ vs assets/
+- [ ] 8. Write SKILL.md as an index (<200 lines) + frontmatter
+- [ ] 9. Verify against the checklist
 ```
 
 **1. Define the job + use cases.** State the single job in one sentence, then
@@ -47,25 +48,37 @@ write 2-3 concrete tasks the skill must handle. If you can't, the scope is wrong
 related skills, it's a plugin. Otherwise a skill. See
 [references/philosophy.md](references/philosophy.md) (§3.1).
 
-**3. Map the steps.** For each step decide: is it *deterministic* (→ a script the
+**3. Scaffold it with adev.** Let adev create the folder skeleton — don't make it
+by hand:
+
+```bash
+adev new skill <name> [scope] [harness]
+```
+
+This creates `SKILL.md` plus empty `references/`, `assets/`, and `scripts/` in the
+right harness dir. The steps below fill that skeleton in. adev refuses to
+overwrite an existing skill unless you add `--force`. (Full command surface:
+the `adev-cli` skill. Remove a skill with `adev delete skill <name>`.)
+
+**4. Map the steps.** For each step decide: is it *deterministic* (→ a script the
 skill calls) or *judgment* (→ the agent, or a subagent for a clean context)? Mark
 which steps are independent so they can run in parallel.
 
-**4. Write the deterministic scripts.** Dependency-free CLIs, JSON in / JSON out,
+**5. Write the deterministic scripts.** Dependency-free CLIs, JSON in / JSON out,
 secrets never committed. Keep a `scripts/CLAUDE.md` index up to date. Rules:
 [references/philosophy.md](references/philosophy.md) (§1).
 
-**5. Add the preflight.** Every skill verifies its own requirements first. Copy
+**6. Add the preflight.** Every skill verifies its own requirements first. Copy
 [assets/setup.sh](assets/setup.sh) and [assets/setup.md](assets/setup.md) into
 the new skill, then customize the checks for what it needs.
 
-**6. Split knowledge.** Pure knowledge the agent reads → `references/`. Artifacts
+**7. Split knowledge.** Pure knowledge the agent reads → `references/`. Artifacts
 a step *uses* to produce output (templates, data) → `assets/`.
 
-**7. Write SKILL.md.** Under 200 lines, an index that points to the references.
+**8. Write SKILL.md.** Under 200 lines, an index that points to the references.
 Frontmatter and body rules: [references/authoring.md](references/authoring.md).
 
-**8. Verify.** Run the checklist at the bottom of
+**9. Verify.** Run the checklist at the bottom of
 [references/philosophy.md](references/philosophy.md) before calling it done.
 
 ## What this skill ships

@@ -34,10 +34,11 @@ Copy this checklist and work top to bottom:
 ```
 - [ ] 1. Define the plugin boundary (process / team / audience)
 - [ ] 2. Decompose into skills (processes) and agents (workers)
-- [ ] 3. Write plugin.json (the manifest)
-- [ ] 4. Build the agents: generic, single-task, judgment-bearing
-- [ ] 5. Build the skills, wired to launch those agents
-- [ ] 6. Verify against the checklist
+- [ ] 3. Scaffold it: adev new plugin <name> [scope] [harness]
+- [ ] 4. Write plugin.json (the manifest)
+- [ ] 5. Build the agents: generic, single-task, judgment-bearing
+- [ ] 6. Build the skills, wired to launch those agents
+- [ ] 7. Verify against the checklist
 ```
 
 **1. Define the boundary.** State what ties these artifacts together in one
@@ -50,21 +51,34 @@ orchestrates. Map which steps are deterministic (→ scripts), which need judgme
 (→ agents), and which are independent (→ parallel). See
 [references/agents.md](references/agents.md) for what makes a good agent.
 
-**3. Write plugin.json.** The manifest at `.claude-plugin/plugin.json`. Copy
+**3. Scaffold it with adev.** Let adev create the folder skeleton — don't make it
+by hand:
+
+```bash
+adev new plugin <name> [scope] [harness]
+```
+
+This creates `.claude-plugin/plugin.json` plus empty `commands/`, `agents/`,
+`skills/`, and `hooks/`. The steps below fill it in. adev refuses to overwrite an
+existing plugin unless you add `--force`. (Full command surface: the `adev-cli`
+skill. Remove a plugin with `adev delete plugin <name>`.)
+
+**4. Write plugin.json.** The manifest at `.claude-plugin/plugin.json`. Copy
 [assets/plugin.json](assets/plugin.json) and fill it in. Layout details:
 [references/structure.md](references/structure.md).
 
-**4. Build the agents.** One file per agent in `agents/`. Keep each **generic and
+**5. Build the agents.** One file per agent in `agents/`. Keep each **generic and
 single-task**: it executes some actions and returns a decision; the skill passes
 the specifics at call time. Copy [assets/agent.md](assets/agent.md) per agent.
 Rules: [references/agents.md](references/agents.md).
 
-**5. Build the skills.** Use the **`adev-skill-builder`** skill for each one.
-Wire each skill to launch the plugin's agents by their namespaced type
-(`<plugin>:<agent>`) and to own the orchestration and the final decision. How
-skills and agents connect: [references/structure.md](references/structure.md).
+**6. Build the skills.** Use the **`adev-skill-builder`** skill for each one,
+created under the plugin's `skills/` folder. Wire each skill to launch the
+plugin's agents by their namespaced type (`<plugin>:<agent>`) and to own the
+orchestration and the final decision. How skills and agents connect:
+[references/structure.md](references/structure.md).
 
-**6. Verify.** Run the checklist at the bottom of
+**7. Verify.** Run the checklist at the bottom of
 [references/philosophy.md](references/philosophy.md).
 
 ## What this skill ships

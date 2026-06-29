@@ -35,32 +35,44 @@ Copy this checklist and work top to bottom:
 
 ```
 - [ ] 1. Decide the catalog's scope (team / company) and which plugins it lists
-- [ ] 2. Write marketplace.json (name, owner, plugins)
-- [ ] 3. Set each plugin's source and versioning
-- [ ] 4. Host it on a git remote (GitHub recommended)
-- [ ] 5. Validate
+- [ ] 2. Scaffold it: adev new plugin-marketplace <name> [scope] [harness]
+- [ ] 3. Write marketplace.json (name, owner, plugins)
+- [ ] 4. Set each plugin's source and versioning
+- [ ] 5. Host it on a git remote (GitHub recommended)
+- [ ] 6. Validate
 ```
 
 **1. Scope the catalog.** Decide who it serves (a team, a company) and which
 plugins it lists. One marketplace can reference plugins from many repos.
 
-**2. Write marketplace.json.** At `.claude-plugin/marketplace.json`: a `name`
-(kebab-case, not a reserved name), an `owner`, and a `plugins` array where each
-entry has at least a `name` and a `source`. Copy
-[assets/marketplace.json](assets/marketplace.json). Full schema:
+**2. Scaffold it with adev.** Let adev create the skeleton — don't make it by
+hand:
+
+```bash
+adev new plugin-marketplace <name> [scope] [harness]
+```
+
+This creates `.claude-plugin/marketplace.json` plus an empty `plugins/` folder.
+The steps below fill it in. adev refuses to overwrite an existing marketplace
+unless you add `--force`. (Full command surface: the `adev-cli` skill. Remove one
+with `adev delete plugin-marketplace <name>`.)
+
+**3. Write marketplace.json.** A `name` (kebab-case, not a reserved name), an
+`owner`, and a `plugins` array where each entry has at least a `name` and a
+`source`. Copy [assets/marketplace.json](assets/marketplace.json). Full schema:
 [references/marketplace.md](references/marketplace.md).
 
-**3. Set sources and versioning.** For each plugin, choose where it's fetched
+**4. Set sources and versioning.** For each plugin, choose where it's fetched
 from — a relative path (`./plugins/<name>` in this same repo), a `github` repo, a
 git `url`, a `git-subdir`, or `npm` — and decide versioning: pin a `version`
 string, or omit it to track the git commit SHA. See
 [references/marketplace.md](references/marketplace.md).
 
-**4. Host it.** Push the repo to GitHub (recommended) or another git host. Share
+**5. Host it.** Push the repo to GitHub (recommended) or another git host. Share
 it: users run `/plugin marketplace add <owner>/<repo>`; you publish updates by
 pushing, and users refresh with `/plugin marketplace update`.
 
-**5. Validate.** `marketplace.json` is valid JSON; `name` isn't reserved;
+**6. Validate.** `marketplace.json` is valid JSON; `name` isn't reserved;
 relative `source` paths start with `./`. Note: relative paths only resolve when
 users add the marketplace from a git/local source, not from a direct URL to the
 JSON.
