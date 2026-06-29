@@ -131,11 +131,34 @@ the user. Design phases accordingly: a subagent runs to a proposal, and the main
 conversation is where you stop, show the user, and wait for approval before
 feeding the next phase.
 
+## 4. Preflight: verify the environment first
+
+The **first thing every skill does**, before any real work, is run a preflight
+check: a script in `scripts/` (`setup.sh` on Unix, `setup.bat` on Windows) that
+confirms the environment is ready to run the skill. It verifies the skill's own
+requirements, for example:
+
+- the required configuration files exist (e.g. `scripts/.env`, credentials),
+- Python is installed, when the skill uses it,
+- any skill-specific tools, binaries, or environment variables are present.
+
+If something is missing, the check **fails loudly and tells the user exactly what
+to provide**, and the skill stops instead of proceeding into a broken run.
+Failing fast on a clean, fixable error beats failing deep inside the process with
+a confusing one.
+
+This is documented in **`references/setup.md`**, which every skill ships: it
+describes what the preflight verifies, how to satisfy each requirement, and how
+to run it. `references/setup.md` is the skill's setup guide; the `setup.sh` /
+`setup.bat` script is its executable form.
+
 ## Checklist
 
 Before calling a skill done, verify:
 
 - [ ] `SKILL.md` is under 200 lines and reads as an index.
+- [ ] A preflight check (`scripts/setup.sh` / `.bat`) runs first and verifies the
+      skill's requirements; `references/setup.md` documents it.
 - [ ] Every measurable step is a deterministic script, not agent judgment.
 - [ ] Scripts have no external dependencies and are commented.
 - [ ] No secrets committed; `.env.example` present, real `.env` gitignored.
