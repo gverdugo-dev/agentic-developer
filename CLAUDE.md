@@ -38,6 +38,8 @@ cmd/adev/main.go            Entry point: wires the program, owns the exit code.
 internal/cli/               Boundary: every invocation is a Command that parses
                             its own flags and runs itself; Run dispatches.
   cli.go                    Command interface, the command registry, Run dispatch, help.
+  output.go                 Styled user-facing output (lipgloss); degrades to plain text.
+  interactive.go            huh form for `adev new` with no args on a terminal.
   scaffold_cmd.go           scaffoldCmd (new + delete): flag parsing + apply/remove.
   setup.go                  setupCmd: install bundled skills into a harness.
   version.go                versionCmd + the ldflags-injected Version var.
@@ -81,6 +83,12 @@ flagless ones outside an arg parser.
   remainder after each positional. Unknown flags still surface as errors.
 - Adding a command is implementing `Command` and adding it to `commands` (and to
   `order`, which fixes the help listing order); the dispatcher does not change.
+- `adev new` with no positionals, run on a terminal, opens an interactive `huh`
+  form (`interactive.go`) that collects the same fields; passed flags seed its
+  defaults, and the collected values go through the same `newScaffoldRequest`
+  validation. `interactiveAvailable` gates it on stdin and stdout both being
+  TTYs, so a non-terminal caller (a script or CI) keeps the old usage error
+  instead of blocking on a prompt. `delete` is never interactive.
 
 ### How scaffolding works
 

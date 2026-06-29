@@ -32,13 +32,12 @@ package main
 
 import (
 	"agentic-developer/internal/cli"
-	"log/slog"
 	"os"
 )
 
 func main() {
 	if err := cli.Run(os.Args); err != nil {
-		slog.Error("adev failed", "err", err)
+		cli.RenderError(err)
 		os.Exit(1)
 	}
 }

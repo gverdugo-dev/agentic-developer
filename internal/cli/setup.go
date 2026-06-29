@@ -3,7 +3,6 @@ package cli
 import (
 	"agentic-developer/internal/scaffolding"
 	"agentic-developer/skills"
-	"log/slog"
 	"path/filepath"
 )
 
@@ -50,10 +49,10 @@ func (setupCmd) Run(args []string) error {
 		return err
 	}
 
-	slog.Info("adev skills installed",
-		"harness", scaffolding.AIHarnesses[harness],
-		"dir", destDir,
-		"skills", installed,
-	)
+	printSuccess("installed %d adev skill(s) for %s into %s",
+		len(installed), accent(scaffolding.AIHarnesses[harness]), muted(destDir))
+	for _, name := range installed {
+		printInfo("  %s %s", muted("-"), accent(name))
+	}
 	return nil
 }

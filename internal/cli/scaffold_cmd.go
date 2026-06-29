@@ -59,6 +59,18 @@ func (c scaffoldCmd) Run(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// `adev new` with no positionals on a terminal opens an interactive form
+	// instead of erroring; the flags seed its defaults. delete and any
+	// non-terminal caller (a script or CI) fall through to the usage error.
+	if c.verb == scaffolding.New && len(positional) == 0 && interactiveAvailable() {
+		req, err := runNewForm(*scopeStr, *harnessStr, force)
+		if err != nil {
+			return err
+		}
+		return createArtifact(req)
+	}
+
 	if len(positional) < 2 {
 		fs.Usage()
 		return fmt.Errorf("provide the artifact and the artifact name")
@@ -142,7 +154,14 @@ func createArtifact(req scaffoldRequest) error {
 		return err
 	}
 
-	return scaffolding.ApplyConfig(resources, req.name, baseDir, req.force)
+	if err := scaffolding.ApplyConfig(resources, req.name, baseDir, req.force); err != nil {
+		return err
+	}
+
+	root := filepath.Join(baseDir, req.name)
+	printSuccess("created %s %s at %s",
+		scaffolding.Artifacts[req.artifact], accent(req.name), muted(root))
+	return nil
 }
 
 // deleteArtifact removes a previously scaffolded artifact from the dir resolved
@@ -153,7 +172,14 @@ func deleteArtifact(req scaffoldRequest) error {
 		return err
 	}
 
-	return scaffolding.RemoveConfig(req.name, baseDir)
+	if err := scaffolding.RemoveConfig(req.name, baseDir); err != nil {
+		return err
+	}
+
+	root := filepath.Join(baseDir, req.name)
+	printSuccess("deleted %s %s at %s",
+		scaffolding.Artifacts[req.artifact], accent(req.name), muted(root))
+	return nil
 }
 
 // resolveTarget computes where an artifact should live: the scope base dir plus

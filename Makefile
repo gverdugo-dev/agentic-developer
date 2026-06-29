@@ -5,8 +5,19 @@ MODULE  := agentic-developer
 LDFLAGS := -s -w -X $(MODULE)/internal/cli.Version=$(VERSION)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
+# `make run new skill foo` forwards the bare words after `run` to adev. Those
+# words would otherwise be parsed as make targets, so when run is the first goal
+# we declare them as no-op rules. The block is scoped to run-first, so it never
+# affects any other target. Flags (--scope ...) can't be passed positionally
+# because make consumes them itself; pass those through ARGS instead, e.g.
+# make run new skill foo ARGS="--scope local".
+ifeq (run,$(firstword $(MAKECMDGOALS)))
+  RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  $(eval $(RUN_ARGS):;@:)
+endif
+
 run: build
-	@go run -ldflags "$(LDFLAGS)" ./cmd/adev
+	@go run -ldflags "$(LDFLAGS)" ./cmd/adev $(RUN_ARGS) $(ARGS)
 
 build:
 	@go build -ldflags "$(LDFLAGS)" -o ./bin/adev ./cmd/adev
