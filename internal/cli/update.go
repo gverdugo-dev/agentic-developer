@@ -48,7 +48,7 @@ func runUpdate() error {
 
 	current := resolveVersion()
 	if current == latest {
-		fmt.Printf("adev is already up to date (%s)\n", current)
+		printSuccess("adev is already up to date (%s)", accent(current))
 		return nil
 	}
 
@@ -63,7 +63,7 @@ func runUpdate() error {
 	asset, isZip := assetName()
 	base := fmt.Sprintf("https://github.com/%s/releases/latest/download", updateRepo)
 
-	fmt.Printf("adev: updating %s -> %s ...\n", current, latest)
+	printInfo("updating %s -> %s ...", accent(current), accent(latest))
 
 	archive, err := download(client, base+"/"+asset)
 	if err != nil {
@@ -81,7 +81,7 @@ func runUpdate() error {
 		return fmt.Errorf("replacing the adev binary at %q: %w", exe, err)
 	}
 
-	fmt.Printf("adev: updated to %s\n", latest)
+	printSuccess("updated to %s", accent(latest))
 	return nil
 }
 

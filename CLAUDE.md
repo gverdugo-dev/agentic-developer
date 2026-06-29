@@ -38,6 +38,7 @@ cmd/adev/main.go            Entry point: wires the program, owns the exit code.
 internal/cli/               Boundary: every invocation is a Command that parses
                             its own flags and runs itself; Run dispatches.
   cli.go                    Command interface, the command registry, Run dispatch, help.
+  output.go                 Styled user-facing output (lipgloss); degrades to plain text.
   scaffold_cmd.go           scaffoldCmd (new + delete): flag parsing + apply/remove.
   setup.go                  setupCmd: install bundled skills into a harness.
   version.go                versionCmd + the ldflags-injected Version var.

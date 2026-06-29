@@ -142,7 +142,14 @@ func createArtifact(req scaffoldRequest) error {
 		return err
 	}
 
-	return scaffolding.ApplyConfig(resources, req.name, baseDir, req.force)
+	if err := scaffolding.ApplyConfig(resources, req.name, baseDir, req.force); err != nil {
+		return err
+	}
+
+	root := filepath.Join(baseDir, req.name)
+	printSuccess("created %s %s at %s",
+		scaffolding.Artifacts[req.artifact], accent(req.name), muted(root))
+	return nil
 }
 
 // deleteArtifact removes a previously scaffolded artifact from the dir resolved
@@ -153,7 +160,14 @@ func deleteArtifact(req scaffoldRequest) error {
 		return err
 	}
 
-	return scaffolding.RemoveConfig(req.name, baseDir)
+	if err := scaffolding.RemoveConfig(req.name, baseDir); err != nil {
+		return err
+	}
+
+	root := filepath.Join(baseDir, req.name)
+	printSuccess("deleted %s %s at %s",
+		scaffolding.Artifacts[req.artifact], accent(req.name), muted(root))
+	return nil
 }
 
 // resolveTarget computes where an artifact should live: the scope base dir plus

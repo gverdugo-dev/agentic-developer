@@ -65,15 +65,17 @@ func Run(argv []string) error {
 
 // printUsage writes the top-level help: the command list with each synopsis.
 func printUsage() {
-	fmt.Println("adev scaffolds and removes AI coding-agent artifacts.")
+	fmt.Println(title("adev") + " scaffolds and removes AI coding-agent artifacts.")
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("\tadev <command> [arguments]")
 	fmt.Println()
 	fmt.Println("Commands:")
 	for _, name := range order {
-		fmt.Printf("\t%-9s %s\n", name, commands[name].Synopsis())
+		// Pad the styled name to the visible width, then color it, so the
+		// alignment stays correct even when the style adds invisible escapes.
+		fmt.Printf("\t%s %s\n", command(fmt.Sprintf("%-9s", name)), commands[name].Synopsis())
 	}
 	fmt.Println()
-	fmt.Println("Run 'adev <command> -h' for command-specific help.")
+	fmt.Println(muted("Run 'adev <command> -h' for command-specific help."))
 }
