@@ -38,13 +38,15 @@ var commands = map[string]Command{
 	"skill":       skillCmd{},
 	"plugin":      pluginCmd{},
 	"marketplace": marketplaceCmd{},
+	"export":      exportCmd{},
+	"sync":        syncCmd{},
 	"setup":       setupCmd{},
 	"update":      updateCmd{},
 	"version":     versionCmd{},
 }
 
 // order fixes the listing order in the help output; map iteration is random.
-var order = []string{"new", "delete", "rm", "scan", "list", "doctor", "clean", "skill", "plugin", "marketplace", "setup", "update", "version"}
+var order = []string{"new", "delete", "rm", "scan", "list", "doctor", "clean", "skill", "plugin", "marketplace", "export", "sync", "setup", "update", "version"}
 
 // Run is the single entry point of the CLI: it selects the command named by the
 // first arg and hands it the rest. It returns an error so main() can decide the
