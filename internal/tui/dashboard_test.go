@@ -2,6 +2,7 @@ package tui
 
 import (
 	"agentic-developer/internal/discovery"
+	"agentic-developer/internal/doctor"
 	"agentic-developer/internal/manage"
 	"os"
 	"strings"
@@ -207,6 +208,67 @@ func TestViewSwitchDrillAndPage(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.drilled || m.selected != 1 {
 		t.Fatalf("second esc should undrill and restore selection: drilled=%v selected=%d", m.drilled, m.selected)
+	}
+}
+
+// TestDoctorView drives the doctor view: "5" switches to it, the rows list
+// the findings, enter opens a detail page with the fix hint, and "d" is
+// refused (findings are informational).
+func TestDoctorView(t *testing.T) {
+	m := newDash("test", "/root")
+	m.setSize(100, 30)
+	m, _ = m.Update(scanResultMsg{root: "/root",
+		dirs: []discovery.ConfigDir{{Path: "/root/.claude"}},
+		findings: []doctor.Finding{
+			{Severity: doctor.Error, Check: "skill-md-missing", Path: "/root/.claude/skills/broken",
+				Message: `skill "broken" has no SKILL.md, so it can never load`, FixHint: "create SKILL.md"},
+			{Severity: doctor.Warning, Check: "skill-md-too-long", Path: "/root/.claude/skills/long/SKILL.md",
+				Message: `SKILL.md of "long" is 250 lines long`, FixHint: "move knowledge into references/"},
+		},
+	})
+
+	// "5" switches to the doctor view listing both findings.
+	m, _ = m.Update(key("5"))
+	if m.view != viewDoctorTab || m.listLen() != 2 {
+		t.Fatalf("doctor view: view=%v listLen=%d, want viewDoctorTab with 2", m.view, m.listLen())
+	}
+	if !strings.Contains(m.viewList(80), "has no SKILL.md") {
+		t.Fatalf("list misses the finding message: %q", m.viewList(80))
+	}
+
+	// The preview shows the fix hint; enter opens the full page.
+	if preview := strings.Join(m.detailLines(60), "\n"); !strings.Contains(preview, "create SKILL.md") {
+		t.Fatalf("preview misses the fix hint: %q", preview)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.page == nil || m.page.title != "finding: skill-md-missing" {
+		t.Fatalf("page = %+v, want the finding page", m.page)
+	}
+	if !strings.Contains(m.page.content, "create SKILL.md") {
+		t.Fatalf("page content misses the fix hint: %q", m.page.content)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	// "d" does not open a confirm prompt: findings cannot be deleted.
+	m, _ = m.Update(key("d"))
+	if m.mode != modeNormal || m.pending != nil {
+		t.Fatalf("d on a finding opened a confirm: mode=%v pending=%+v", m.mode, m.pending)
+	}
+	if m.status == "" {
+		t.Fatal("d on a finding left no status explanation")
+	}
+
+	// The second finding is a warning and previews as one.
+	m, _ = m.Update(key("j"))
+	if preview := strings.Join(m.detailLines(60), "\n"); !strings.Contains(preview, "warning") {
+		t.Fatalf("warning preview misses its severity: %q", preview)
+	}
+
+	// A rescan with no findings shows the healthy state.
+	m.pendingRoot = "/root"
+	m, _ = m.Update(scanResultMsg{root: "/root", dirs: []discovery.ConfigDir{{Path: "/root/.claude"}}})
+	if m.listLen() != 0 || !strings.Contains(m.viewList(80), "no problems found") {
+		t.Fatalf("healthy doctor list = %q, want 'no problems found'", m.viewList(80))
 	}
 }
 

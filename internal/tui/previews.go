@@ -2,6 +2,7 @@ package tui
 
 import (
 	"agentic-developer/internal/discovery"
+	"agentic-developer/internal/doctor"
 	"agentic-developer/internal/scaffolding"
 	"fmt"
 	"strings"
@@ -124,6 +125,27 @@ func marketplaceGroupPreview(g discovery.MarketplaceGroup) string {
 		return abbreviateHome(g.Locations[i].ConfigDir)
 	})
 	return b.String()
+}
+
+// findingPreview details one doctor finding: severity and check id, the
+// offending path, the message, and the fix hint.
+func findingPreview(f doctor.Finding) string {
+	var b strings.Builder
+	b.WriteString(severityTag(f.Severity) + " " + itemMutedStyle.Render(f.Check) + "\n")
+	b.WriteString(itemMutedStyle.Render("("+abbreviateHome(f.Path)+")") + "\n\n")
+	b.WriteString(f.Message + "\n")
+	if f.FixHint != "" {
+		b.WriteString("\n" + itemSelectedStyle.Render("fix: ") + f.FixHint + "\n")
+	}
+	return b.String()
+}
+
+// severityTag renders the colored severity label of a finding.
+func severityTag(s doctor.Severity) string {
+	if s == doctor.Error {
+		return itemErrorStyle.Render("error")
+	}
+	return itemWarnStyle.Render("warning")
 }
 
 // writeLocations writes the "lives in N location(s):" block.

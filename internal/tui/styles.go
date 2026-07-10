@@ -33,6 +33,10 @@ var (
 	itemSelectedStyle = lipgloss.NewStyle().Foreground(brand.Teal).Bold(true)
 	itemMutedStyle    = lipgloss.NewStyle().Foreground(brand.Grey)
 
+	// Doctor finding severities.
+	itemErrorStyle = lipgloss.NewStyle().Foreground(brand.Red).Bold(true)
+	itemWarnStyle  = lipgloss.NewStyle().Foreground(brand.Amber).Bold(true)
+
 	// Root input line and status.
 	inputPromptStyle = lipgloss.NewStyle().Bold(true).Foreground(brand.Blue)
 	errorTextStyle   = lipgloss.NewStyle().Foreground(brand.Red)
