@@ -1,22 +1,11 @@
 package cli
 
 import (
+	"agentic-developer/internal/brand"
 	"fmt"
 	"os"
 
 	"github.com/charmbracelet/lipgloss"
-)
-
-// Brand palette (from the project's report.css): blue is the primary accent,
-// blue-dark titles headings, teal is the secondary accent used for success.
-// There is no brand red, so errors keep a semantic red. Truecolor hex values
-// are downsampled by termenv on terminals with a smaller color profile.
-const (
-	brandBlue     = lipgloss.Color("#1a75bb")
-	brandBlueDark = lipgloss.Color("#06538e")
-	brandTeal     = lipgloss.Color("#5dc9be")
-	errorRed      = lipgloss.Color("#d64550")
-	grey          = lipgloss.Color("245")
 )
 
 // Two renderers bound to the actual output streams so lipgloss detects each
@@ -28,14 +17,14 @@ var (
 	errRenderer = lipgloss.NewRenderer(os.Stderr)
 
 	// stdout styles.
-	titleStyle   = outRenderer.NewStyle().Bold(true).Foreground(brandBlueDark)
-	commandStyle = outRenderer.NewStyle().Bold(true).Foreground(brandBlue)
-	accentStyle  = outRenderer.NewStyle().Foreground(brandBlue)
-	mutedStyle   = outRenderer.NewStyle().Foreground(grey)
-	successStyle = outRenderer.NewStyle().Bold(true).Foreground(brandTeal)
+	titleStyle   = outRenderer.NewStyle().Bold(true).Foreground(brand.BlueDark)
+	commandStyle = outRenderer.NewStyle().Bold(true).Foreground(brand.Blue)
+	accentStyle  = outRenderer.NewStyle().Foreground(brand.Blue)
+	mutedStyle   = outRenderer.NewStyle().Foreground(brand.Grey)
+	successStyle = outRenderer.NewStyle().Bold(true).Foreground(brand.Teal)
 
 	// stderr styles.
-	errorStyle = errRenderer.NewStyle().Bold(true).Foreground(errorRed)
+	errorStyle = errRenderer.NewStyle().Bold(true).Foreground(brand.Red)
 )
 
 // accent styles a value the eye should land on: an artifact name, a harness, a
