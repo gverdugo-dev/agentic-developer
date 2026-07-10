@@ -1,9 +1,10 @@
-# view_nav.exp: the 1-4 view tabs, drilling into a config dir, and the
+# view_nav.exp: the 1-5 view tabs, drilling into a config dir, and the
 # full-screen detail page.
 #
-# Flow: visit skills, plugins (registry-less folder plugin with its version)
-# and marketplaces (catalog), return to paths, drill into the fake home's
-# .claude, open a skill's detail page, and esc back out level by level.
+# Flow: visit skills, plugins (registry-less folder plugin with its version),
+# marketplaces (catalog) and doctor (healthy fixture), return to paths, drill
+# into the fake home's .claude, open a skill's detail page, and esc back out
+# level by level.
 
 source [file join [file dirname [info script]] lib harness.tcl]
 
@@ -28,6 +29,11 @@ send "4"
 await "Marketplaces"
 await "demo-market"
 await "offers 2 plugin(s)"
+
+step "5: doctor view reports the healthy fixture"
+send "5"
+await "Doctor"
+await "no problems found"
 
 step "1: back to the paths view"
 send "1"
