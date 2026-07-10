@@ -125,10 +125,20 @@ func TestSyncInSyncExitsClean(t *testing.T) {
 }
 
 // TestSyncApply verifies --apply executes exactly the installable missing
-// items through the claude CLI and reports each result.
+// items: plugins and marketplaces through the claude CLI, skills through the
+// wired InstallSkill seam (stubbed here; the real copier has its own test).
 func TestSyncApply(t *testing.T) {
 	syncFixture(t)
 	called := stubExec(t, "ok")
+
+	var seamCalls []string
+	orig := adevfile.InstallSkill
+	adevfile.InstallSkill = func(name, harnessLabel, scope string) (string, error) {
+		seamCalls = append(seamCalls, name+" into "+harnessLabel+"/"+scope)
+		return "copied", nil
+	}
+	t.Cleanup(func() { adevfile.InstallSkill = orig })
+
 	writeFile(t, ".", "manifest.json", `{
 	  "version": 1,
 	  "harnesses": {"claude": {"user": {
@@ -166,14 +176,55 @@ func TestSyncApply(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &results); err != nil {
 		t.Fatalf("output is not JSON: %v (%q)", err, out)
 	}
-	if len(results) != 2 || !results[0].Applied || !results[1].Applied {
-		t.Fatalf("results = %+v, want 2 applied items", results)
+	if len(results) != 3 {
+		t.Fatalf("results = %+v, want 3 applied items", results)
 	}
-	// The missing skill is manual (T7 seam unwired): reported, not applied.
 	for _, r := range results {
-		if r.Category == adevfile.CategorySkill {
-			t.Fatalf("apply touched a skill: %+v", r)
+		if !r.Applied {
+			t.Fatalf("item not applied: %+v", r)
 		}
+	}
+	// The missing skill went through the wired seam, not the claude CLI.
+	if len(seamCalls) != 1 || seamCalls[0] != "missing-skill into claude/user" {
+		t.Fatalf("seam calls = %v", seamCalls)
+	}
+}
+
+// TestSyncApplyInstallsSkill exercises the real wired seam end to end: the
+// manifest wants a skill in claude/user that only exists in the home codex
+// dir, and --apply copies it across harnesses by its discovered name.
+func TestSyncApplyInstallsSkill(t *testing.T) {
+	syncFixture(t)
+	called := stubExec(t, "")
+
+	home := os.Getenv("HOME")
+	mkdirs(t, home, ".codex/skills/portable-skill")
+	writeFile(t, home, ".codex/skills/portable-skill/SKILL.md",
+		"---\nname: portable-skill\ndescription: fixture\n---\n\nbody\n")
+	writeFile(t, ".", "adevfile.json", `{
+	  "version": 1,
+	  "harnesses": {"claude": {"user": {"skills": ["home-skill", "portable-skill"]}}}
+	}`)
+
+	if out, err := captureStdoutErr(t, func() error {
+		return syncCmd{}.Run([]string{"--apply"})
+	}); err != nil {
+		t.Fatalf("apply failed: %v (%q)", err, out)
+	}
+	if len(*called) != 0 {
+		t.Fatalf("a skill install reached the claude CLI: %v", *called)
+	}
+
+	installed := filepath.Join(home, ".claude/skills/portable-skill/SKILL.md")
+	if _, err := os.Stat(installed); err != nil {
+		t.Fatalf("the skill did not land in ~/.claude: %v", err)
+	}
+
+	// A second sync sees the copy: the manifest is now satisfied.
+	if _, err := captureStdoutErr(t, func() error {
+		return syncCmd{}.Run(nil)
+	}); err != nil {
+		t.Fatalf("re-sync after apply not clean: %v", err)
 	}
 }
 

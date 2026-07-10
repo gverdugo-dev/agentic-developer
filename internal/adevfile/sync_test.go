@@ -77,7 +77,7 @@ func TestDiff(t *testing.T) {
 	}
 
 	assert(planItem(t, plan, CategorySkill, "home-skill"), StateSatisfied, ActionNone)
-	assert(planItem(t, plan, CategorySkill, "wanted-skill"), StateMissing, ActionManual) // T7 seam not wired
+	assert(planItem(t, plan, CategorySkill, "wanted-skill"), StateMissing, ActionManual) // the seam is nil in package tests
 	assert(planItem(t, plan, CategorySkill, "unlisted-skill"), StateExtra, ActionNone)
 
 	assert(planItem(t, plan, CategoryPlugin, "tool@some-mkt"), StateSatisfied, ActionNone)

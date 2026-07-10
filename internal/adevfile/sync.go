@@ -31,9 +31,8 @@ const (
 )
 
 // The actions of a plan item. Missing items get "install" (a plugin, or a
-// skill once the installer seam is wired), "add" (a marketplace) or
-// "manual" (nothing adev can run for it yet); satisfied and extra items get
-// "none".
+// skill through the installer seam), "add" (a marketplace) or "manual"
+// (nothing adev can run for it); satisfied and extra items get "none".
 const (
 	ActionInstall = "install"
 	ActionAdd     = "add"
@@ -43,10 +42,11 @@ const (
 
 // InstallSkill is the seam through which sync installs a missing skill.
 //
-// TODO(T7): cross-harness skill install (task T7) delivers the real copier
-// (InstallSkill in manage/adapters); wire it here at integration. While the
-// seam is nil, Diff classifies missing skills as manual and Apply refuses
-// them.
+// The cli package wires manage's cross-harness copier (task T7) into it at
+// init, so the adev binary always runs with the seam filled. It stays a
+// function variable because adevfile must not import the mutation layer:
+// while the seam is nil (bare package use, or tests that want it quiet),
+// Diff classifies missing skills as manual and Apply refuses them.
 var InstallSkill func(name, harnessLabel, scope string) (string, error)
 
 // Item is one line of a sync plan: an artifact of one harness scope, its
@@ -292,7 +292,7 @@ func Apply(item Item) (string, error) {
 
 	switch {
 	case item.Category == CategorySkill && item.Action == ActionInstall:
-		// TODO(T7): this call lands on the seam above; see InstallSkill.
+		// This call lands on the seam above; see InstallSkill.
 		return InstallSkill(item.Name, item.Harness, item.Scope)
 	case item.Category == CategoryPlugin && item.Action == ActionInstall:
 		ops, err := operationsFor(item.Harness)
