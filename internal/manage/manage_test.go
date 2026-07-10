@@ -1,6 +1,7 @@
 package manage
 
 import (
+	"agentic-developer/internal/harness"
 	"os"
 	"path/filepath"
 	"testing"
@@ -50,16 +51,17 @@ func TestDeleteArtifactValidation(t *testing.T) {
 	}
 }
 
-// TestClaudeOperationsBuildTheRightCommands verifies the claude CLI
-// delegation uses the exact argument shapes, via a stubbed executor.
+// TestClaudeOperationsBuildTheRightCommands verifies the helpers forward to
+// the Claude adapter's executor with the exact argument shapes, via a
+// stubbed harness.ClaudeExec.
 func TestClaudeOperationsBuildTheRightCommands(t *testing.T) {
 	var got [][]string
-	orig := Exec
-	Exec = func(args ...string) (string, error) {
+	orig := harness.ClaudeExec
+	harness.ClaudeExec = func(args ...string) (string, error) {
 		got = append(got, args)
 		return "ok", nil
 	}
-	defer func() { Exec = orig }()
+	defer func() { harness.ClaudeExec = orig }()
 
 	if _, err := SetPluginEnabled("a@m", true); err != nil {
 		t.Fatal(err)

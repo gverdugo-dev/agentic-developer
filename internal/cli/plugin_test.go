@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"agentic-developer/internal/manage"
+	"agentic-developer/internal/harness"
 	"encoding/json"
 	"io"
 	"os"
@@ -9,17 +9,17 @@ import (
 	"testing"
 )
 
-// stubExec replaces manage.Exec for the test's lifetime, recording every
+// stubExec replaces harness.ClaudeExec for the test's lifetime, recording every
 // argument list and answering with output.
 func stubExec(t *testing.T, output string) *[][]string {
 	t.Helper()
 	var got [][]string
-	orig := manage.Exec
-	manage.Exec = func(args ...string) (string, error) {
+	orig := harness.ClaudeExec
+	harness.ClaudeExec = func(args ...string) (string, error) {
 		got = append(got, args)
 		return output, nil
 	}
-	t.Cleanup(func() { manage.Exec = orig })
+	t.Cleanup(func() { harness.ClaudeExec = orig })
 	return &got
 }
 
