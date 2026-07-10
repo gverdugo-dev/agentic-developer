@@ -216,8 +216,8 @@ product itself.
 - [x] Manifest schema (`adevfile`) and parser.
 - [x] `adev export`: current discovered state to an adevfile.
 - [x] `adev sync`: diff manifest vs reality, apply via manage/adapters,
-      dry-run by default. Skill install stays behind the
-      `adevfile.InstallSkill` seam until T7 lands its copier.
+      dry-run by default. Skill install goes through the
+      `adevfile.InstallSkill` seam, wired to T7's copier at integration.
 
 **Deliverable**: PR.
 

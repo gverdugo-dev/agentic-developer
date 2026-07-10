@@ -56,6 +56,9 @@ internal/cli/               Boundary: every invocation is a Command that parses
   skill.go                  skillCmd: cross-harness skill install (--harness all fan-out).
   plugin.go                 pluginCmd: install/enable/disable/uninstall via the claude CLI.
   marketplace.go            marketplaceCmd: marketplace add/remove via the claude CLI.
+  export.go                 exportCmd: snapshot the discovered setup to an adevfile.
+  sync.go                   syncCmd: diff an adevfile against reality (--json, --apply).
+  wiring.go                 Fills adevfile.InstallSkill with manage's copier at init.
   setup.go                  setupCmd: install bundled skills into a harness.
   version.go                versionCmd + the ldflags-injected Version var.
   update.go                 updateCmd: self-update from the latest release.
@@ -83,6 +86,10 @@ internal/manage/            Mutations on discovered resources.
   manage.go                 DeleteArtifact: guarded filesystem deletes.
   claude.go                 Plugin/marketplace helpers forwarding to the Claude adapter.
   skill.go                  InstallSkill*: hash-verified skill copies into any harness.
+internal/adevfile/          The manifest (adevfile.json): reproducible setups.
+  adevfile.go               Schema (per-harness, per-scope) + validating parser.
+  export.go                 FromScan: manifest from the discovered reality.
+  sync.go                   Diff/Apply engine + the InstallSkill seam cli wires.
 internal/tui/               The lazygit-style dashboard (Bubble Tea).
   tui.go                    Root model: state machine (intro -> dashboard), global keys.
   intro.go                  The logo decode animation.
@@ -212,6 +219,11 @@ unknown. `adev list --duplicates` filters to multi-location groups.
   marketplace add/remove) forward to the Claude adapter's executor, which
   shells out to the `claude` CLI: it owns the registry and its cache. Never
   write those JSON files by hand. Tests stub `harness.ClaudeExec`.
+- `InstallSkillInto` (plus the `InstallSkill`/`InstallSkillAll` fronts)
+  copies a skill dir into a harness's skills container: SKILL.md frontmatter
+  is validated first, an existing skill is only replaced with force, and the
+  landed copy is verified against the source's content hash. It backs
+  `adev skill install`, the TUI's `c` picker, and `adev sync --apply`.
 
 `internal/doctor` is the read-only health layer: `doctor.Check(dirs)` runs
 the shared skill checks (missing/invalid SKILL.md or frontmatter, the
@@ -229,6 +241,22 @@ its removal action. `clean.Apply` executes one candidate: registry-owned
 entries go through the claude CLI, plain folders through `DeleteArtifact`.
 It powers `adev clean` (dry-run by default, `--apply` removes) and the TUI's
 clean list.
+
+### How the adevfile works
+
+`internal/adevfile` makes a setup reproducible: a JSON manifest
+(`adevfile.json`) declares, per harness and per scope (user/project), the
+skills, plugins (`name@marketplace`) and marketplaces (with add sources) that
+should exist. `adev export` builds one from the discovered reality
+(`FromScan`), and `adev sync` diffs it against reality (`Diff`) and applies
+the missing items (`Apply`): plugins and marketplaces go through the harness
+adapter's executor, skills through `adevfile.InstallSkill`, a function
+variable the cli package fills at init with manage's cross-harness copier
+(`internal/cli/wiring.go`), resolving the manifest name to a discovered
+skill dir. adevfile never imports manage: the seam keeps the manifest engine
+free of the mutation layer, and a nil seam (bare package use) classifies
+missing skills as manual. Extras are reported, never deleted; the exit code
+is diff-style (0 in sync, 1 otherwise).
 
 ### How the TUI works
 

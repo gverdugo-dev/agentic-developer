@@ -24,6 +24,9 @@ that shows every artifact on your machine and lets you act on it.
 - **Duplicate detection**: artifacts are content-hashed, so copies of the same
   artifact across config dirs show up as identical (`=`) or drifted (`≠`), and
   `adev list --duplicates` filters to them.
+- **Cross-harness skill install**: `adev skill install` (and the TUI's `c`)
+  copies a skill into another harness's skills dir, or into every harness
+  present, with frontmatter validation and a hash-verified copy.
 - **Health checks**: `adev doctor` reports broken artifacts (missing or invalid
   manifests, ghost plugins, dead marketplace sources) with fix hints.
 - **Cleanup**: `adev clean` lists the removable dead weight (stale cached
@@ -279,7 +282,8 @@ adev export adevfile.json
 adev sync
 adev sync --json          # the full plan, machine-readable
 
-# Install what is missing (plugins and marketplaces, via the harness CLI)
+# Install what is missing (plugins and marketplaces via the harness CLI,
+# skills via the cross-harness skill installer)
 adev sync --apply
 ```
 
@@ -287,8 +291,9 @@ A declared scope owns its config dir: everything listed must exist there,
 and anything found but not listed is reported as `extra` (never deleted;
 there is no prune). An undeclared scope is left completely alone. Missing
 plugins and marketplaces are installed through the harness's own CLI;
-missing skills are reported for manual install until adev grows the
-cross-harness skill installer.
+missing skills are copied from a discovered copy of the same name through
+the cross-harness skill installer (the engine behind `adev skill install`),
+hash-verified like any other skill copy.
 
 ## How it works
 
@@ -314,8 +319,13 @@ The command flows through three layers:
    - **`clean`** (`internal/clean`): the removal candidates built on discovery
      and doctor, behind `adev clean` and the TUI's clean list.
    - **`manage`** (`internal/manage`): the mutations on discovered resources;
-     guarded filesystem deletes, and plugin/marketplace operations forwarded
-     to the Claude adapter's `claude` CLI executor.
+     guarded filesystem deletes, the hash-verified cross-harness skill copier,
+     and plugin/marketplace operations forwarded to the Claude adapter's
+     `claude` CLI executor.
+   - **`adevfile`** (`internal/adevfile`): the manifest schema and parser, the
+     export builder, and the diff/apply sync engine behind `adev export` and
+     `adev sync`; missing skills are installed through manage's copier, wired
+     in at the cli layer.
    - **`tui`** (`internal/tui`): the Bubble Tea dashboard on top of discovery
      and manage.
 
@@ -435,6 +445,7 @@ To change or extend a layout, edit `structures.json` and rebuild.
 │   │   ├── doctor.go                # `adev doctor`: the health report
 │   │   ├── clean.go                 # `adev clean`: dry-run + --apply removals
 │   │   ├── rm.go                    # Guarded artifact/config-dir delete
+│   │   ├── skill.go                 # `adev skill install`: cross-harness copy
 │   │   ├── plugin.go                # install / enable / disable / uninstall
 │   │   ├── marketplace.go           # marketplace add / remove
 │   │   ├── export.go / sync.go      # adevfile export + sync
@@ -446,7 +457,7 @@ To change or extend a layout, edit `structures.json` and rebuild.
 │   ├── doctor/                      # Health checks behind `adev doctor`
 │   ├── clean/                       # Removal candidates behind `adev clean`
 │   ├── adevfile/                    # The manifest: schema, export, sync engines
-│   ├── manage/                      # Deletes + forwarding to the Claude adapter
+│   ├── manage/                      # Deletes, skill copies + Claude forwarding
 │   ├── tui/                         # The Bubble Tea dashboard
 │   └── brand/                       # The shared color palette
 ├── skills/                          # Bundled skills (embedded via go:embed)
