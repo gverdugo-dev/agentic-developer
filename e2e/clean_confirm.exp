@@ -1,0 +1,65 @@
+# clean_confirm.exp: the clean flow from the doctor view, checked against
+# the disk.
+#
+# Setup: the fixture home gets an empty plugin registry plus an orphaned
+# cache folder, so the doctor reports one cache-orphan finding and clean
+# offers one candidate. Flow: "5" opens the doctor view showing the finding,
+# "c" flips to the clean candidates, "d" asks y/n per candidate; "n" cancels
+# (the folder survives), "y" removes it and the rescan empties the list.
+
+source [file join [file dirname [info script]] lib harness.tcl]
+
+# The extra fixture is created before boot so the initial scan already sees
+# it. It lives in this test only: registry files in the shared fixture would
+# flip the home's plugin listing to registry mode for every other flow.
+set cfg [file join $env(E2E_HOME) .claude]
+set orphan [file join $cfg plugins cache mkt orphan]
+file mkdir [file join $orphan 1.0.0]
+set f [open [file join $orphan 1.0.0 plugin.json] w]
+puts $f {{"name": "orphan"}}
+close $f
+set f [open [file join $cfg plugins installed_plugins.json] w]
+puts $f {{"version": 2, "plugins": {}}}
+close $f
+
+boot
+
+step "initial scan done"
+await "1/2"
+
+step "doctor view lists the cache-orphan finding"
+send "5"
+await "Doctor"
+await "cached plugin"
+
+step "c flips to the clean candidates"
+send "c"
+await "Clean"
+await "cache/mkt/orphan"
+
+step "d asks for confirmation"
+send "d"
+await "orphan?"
+
+step "n cancels and the folder survives on disk"
+send "n"
+await "d: remove"
+if {![file isdirectory $orphan]} {
+    fail "the orphan vanished after a cancelled removal"
+}
+
+step "d then y removes it and the rescan empties the list"
+send "d"
+await "orphan?"
+send "y"
+await "nothing to clean"
+if {[file isdirectory $orphan]} {
+    fail "the orphan still on disk after the removal"
+}
+
+step "esc returns to a healthy findings list"
+send "\x1b"
+await "no problems found"
+
+quit
+step "ok"
