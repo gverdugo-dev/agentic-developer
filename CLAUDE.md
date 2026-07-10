@@ -62,17 +62,22 @@ internal/scaffolding/       Scaffolding domain core.
   scaffold.go               Config load + ApplyConfig/RemoveConfig engine.
   utils.go                  Harness detection, placement, lookups.
   structures.json           Embedded folder layouts (//go:embed).
+internal/harness/           One adapter per AI harness (see "How harness adapters work").
+  harness.go                Adapter interface, shared types, the adapter registry.
+  claude.go                 Claude adapter: registry reader, manifests, claude CLI executor.
+  codex.go                  Codex adapter: skills + prompts, AGENTS.md awareness.
+  opencode.go               opencode adapter: skills + TS plugins, opencode.json awareness.
 internal/discovery/         Discovery domain core (shared by CLI and TUI).
-  discovery.go              Scan: the gitignore-aware walk for config dirs.
+  discovery.go              Scan: the gitignore-aware walk; collection driven by adapters.
   ignore.go                 Default ignore list + scoped .gitignore matching.
-  meta.go                   SKILL.md frontmatter, plugin.json, marketplace.json parsing.
-  claude.go                 Claude Code's own plugin registry reader (ReadClaudeRegistry).
+  meta.go                   SKILL.md frontmatter parsing (the standard every harness shares).
+  compat.go                 Deprecated ReadClaudeRegistry shim over the Claude adapter.
   hash.go                   Content hashes per artifact dir, behind drift detection.
   aggregate.go              Cross-path grouping (SkillGroup, PluginGroup, ...) + DriftState.
-internal/doctor/            Health checks: finding model + skill/manifest/registry checks.
+internal/doctor/            Health checks: finding model + skill checks + adapter validators.
 internal/manage/            Mutations on discovered resources.
   manage.go                 DeleteArtifact: guarded filesystem deletes.
-  claude.go                 Plugin/marketplace operations through the claude CLI.
+  claude.go                 Plugin/marketplace helpers forwarding to the Claude adapter.
 internal/tui/               The lazygit-style dashboard (Bubble Tea).
   tui.go                    Root model: state machine (intro -> dashboard), global keys.
   intro.go                  The logo decode animation.
@@ -145,11 +150,32 @@ overwrites adev's own skill files (so re-running is an update) but never deletes
 the skills directory or touches other skills. There is no pruning of files
 removed from the bundle.
 
+### How harness adapters work
+
+`internal/harness` makes every harness a first-class citizen behind one
+`Adapter` interface: the marker dir that identifies it, which artifact kinds
+live in which containers, its instruction files, a registry reader (where the
+harness has one), manifest validators, and an operation executor (where a CLI
+owns the registry). The adapter registry (`All`, `ForID`, `ForMarker`)
+preserves the detection priority (claude, codex, opencode). Discovery, the
+doctor and the TUI consume adapters and never branch on a concrete harness,
+so supporting a new harness (gemini-cli, cursor) is implementing `Adapter`
+and appending it to the list.
+
+Adapters are honest about capability: Claude is the deep one (registry,
+enabled state, cache, claude CLI operations via the stubbable
+`harness.ClaudeExec`); Codex has skills, a prompts folder and AGENTS.md;
+opencode has skills, TypeScript plugins (package.json metadata, index.ts
+entry check) and opencode.json. Neither of the last two fakes a registry or
+operations it does not have.
+
 ### How discovery works
 
 `discovery.Scan(root)` walks the tree under root looking for harness config
-dirs (`.claude`, `.codex`, `.opencode`) and summarizes what lives in each:
-skills (with SKILL.md frontmatter), plugins and marketplaces. Rules:
+dirs (`.claude`, `.codex`, `.opencode`) and summarizes what lives in each,
+collecting exactly the containers the dir's adapter declares: skills (with
+SKILL.md frontmatter), plugins, marketplaces, prompt files and instruction
+docs. Rules:
 
 - The walk respects the same boundaries git does: an embedded default ignore
   list applies everywhere, and each `.gitignore` applies to its own subtree.
@@ -157,10 +183,10 @@ skills (with SKILL.md frontmatter), plugins and marketplaces. Rules:
 - A config dir is a leaf: it is collected and never descended into.
 - The user's home config dirs are always prepended to the results, whatever
   the root, because user-level config applies to every project.
-- Claude config dirs prefer Claude Code's own registry
-  (`plugins/installed_plugins.json`, `plugins/known_marketplaces.json`,
-  `settings.json` enabledPlugins), the same data its `/plugins` screen shows;
-  a missing or unparsable registry falls back to the folder layout.
+- A harness with its own registry (Claude: `plugins/installed_plugins.json`,
+  `plugins/known_marketplaces.json`, `settings.json` enabledPlugins) prefers
+  it, the same data its `/plugins` screen shows; a missing or unparsable
+  registry falls back to the folder layout.
 
 `aggregate.go` regroups the per-dir results into the artifact-centric views
 (one group per skill name / plugin identity / marketplace name, each with its
@@ -178,13 +204,15 @@ unknown. `adev list --duplicates` filters to multi-location groups.
   absolute, exists, and is a harness config dir or inside one; anything else
   is refused, so adev can never be talked into deleting an arbitrary folder.
 - Plugin and marketplace operations (install/enable/disable/uninstall,
-  marketplace add/remove) shell out to the `claude` CLI, which owns the
-  registry and its cache. Never write those JSON files by hand.
+  marketplace add/remove) forward to the Claude adapter's executor, which
+  shells out to the `claude` CLI: it owns the registry and its cache. Never
+  write those JSON files by hand. Tests stub `harness.ClaudeExec`.
 
 `internal/doctor` is the read-only health layer: `doctor.Check(dirs)` runs
-every check (missing/invalid SKILL.md or frontmatter, the 200-line house cap,
-invalid plugin/marketplace manifests, enabled-but-not-installed plugins,
-cache/registry drift, dead marketplace directory sources) and returns
+the shared skill checks (missing/invalid SKILL.md or frontmatter, the
+200-line house cap) plus each adapter's validators (invalid manifests,
+enabled-but-not-installed plugins, cache/registry drift, dead marketplace
+directory sources, TS plugins without their entry point) and returns
 prioritized findings with fix hints. It powers `adev doctor` and the TUI's
 doctor view.
 
