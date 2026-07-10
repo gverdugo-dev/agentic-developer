@@ -1,0 +1,57 @@
+# view_nav.exp: the 1-4 view tabs, drilling into a config dir, and the
+# full-screen detail page.
+#
+# Flow: visit skills, plugins (registry-less folder plugin with its version)
+# and marketplaces (catalog), return to paths, drill into the fake home's
+# .claude, open a skill's detail page, and esc back out level by level.
+
+source [file join [file dirname [info script]] lib harness.tcl]
+
+boot
+
+step "initial scan done"
+await "1/2"
+
+step "2: skills view"
+send "2"
+await "1/33"
+
+step "3: plugins view shows the folder plugin and its manifest version"
+send "3"
+await "Plugins"
+await "1/1"
+await "demo-plugin"
+await "1.2.3"
+
+step "4: marketplaces view shows the catalog"
+send "4"
+await "Marketplaces"
+await "demo-market"
+await "offers 2 plugin(s)"
+
+step "1: back to the paths view"
+send "1"
+await "Paths"
+await "1/2"
+
+step "enter drills into ~/.claude: 2 skills + 1 plugin + 1 marketplace"
+send "\r"
+await "1/4"
+await "demo-market"
+
+step "enter on the first artifact opens its full-screen page"
+send "\r"
+await "skill: doomed-skill"
+await "Fixture skill doomed-skill"
+await "esc: back"
+
+step "esc closes the page back to the drilled list"
+send "\x1b"
+await "1/4"
+
+step "esc leaves the drill back to the config dir list"
+send "\x1b"
+await "1/2"
+
+quit
+step "ok"
