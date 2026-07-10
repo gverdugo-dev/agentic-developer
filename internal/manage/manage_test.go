@@ -67,7 +67,13 @@ func TestClaudeOperationsBuildTheRightCommands(t *testing.T) {
 	if _, err := SetPluginEnabled("a@m", false); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := InstallPlugin("a@m"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := UninstallPlugin("a@m"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddMarketplace("owner/repo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := RemoveMarketplace("mkt"); err != nil {
@@ -77,7 +83,9 @@ func TestClaudeOperationsBuildTheRightCommands(t *testing.T) {
 	want := [][]string{
 		{"plugin", "enable", "a@m"},
 		{"plugin", "disable", "a@m"},
+		{"plugin", "install", "a@m"},
 		{"plugin", "uninstall", "a@m"},
+		{"plugin", "marketplace", "add", "owner/repo"},
 		{"plugin", "marketplace", "remove", "mkt"},
 	}
 	if len(got) != len(want) {
