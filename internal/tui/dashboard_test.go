@@ -825,3 +825,169 @@ func findActionResult(t *testing.T, msg tea.Msg) actionResultMsg {
 	t.Fatalf("no actionResultMsg in %T", msg)
 	return actionResultMsg{}
 }
+
+// writeTUISkill lays a valid skill on disk under dir/skills/name and returns
+// its path, so the copy action's validation and hashing have real content.
+func writeTUISkill(t *testing.T, dir, name string) string {
+	t.Helper()
+	skill := dir + "/skills/" + name
+	if err := os.MkdirAll(skill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "---\nname: " + name + "\ndescription: \"Fixture skill\"\n---\n\n# " + name + "\n"
+	if err := os.WriteFile(skill+"/SKILL.md", []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return skill
+}
+
+// TestCopySkillPickerFlow drives "c" on a skill row end to end: the picker
+// opens over the one config dir missing the skill, esc cancels it, and enter
+// runs the copy, lands the skill on disk and schedules the rescan.
+func TestCopySkillPickerFlow(t *testing.T) {
+	base := t.TempDir()
+	claude := base + "/.claude"
+	codex := base + "/.codex"
+	skillPath := writeTUISkill(t, claude, "porta")
+	if err := os.MkdirAll(codex, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newDash("test", base)
+	m.setSize(100, 30)
+	m, _ = m.Update(scanResultMsg{root: base, dirs: []discovery.ConfigDir{
+		{Path: claude, Skills: []discovery.Skill{{Name: "porta", Path: skillPath}}},
+		{Path: codex},
+	}})
+
+	// "c" in the skills view opens the picker over the single target.
+	m, _ = m.Update(key("2"))
+	m, _ = m.Update(key("c"))
+	if m.mode != modePicker || m.picker == nil {
+		t.Fatalf("after c: mode=%v picker=%+v", m.mode, m.picker)
+	}
+	if len(m.picker.targets) != 1 || m.picker.targets[0].dirs[0] != codex {
+		t.Fatalf("targets = %+v, want just %s", m.picker.targets, codex)
+	}
+	if footer := m.viewFooter(); !strings.Contains(footer, "copy porta to") {
+		t.Fatalf("footer misses the picker: %q", footer)
+	}
+
+	// esc cancels without copying.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != modeNormal || m.picker != nil {
+		t.Fatal("esc did not close the picker")
+	}
+
+	// c then enter copies and schedules the rescan.
+	m, _ = m.Update(key("c"))
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.busy || cmd == nil {
+		t.Fatalf("enter did not start the copy: busy=%v", m.busy)
+	}
+	result := findActionResult(t, cmd())
+	if result.err != nil {
+		t.Fatalf("copy failed: %v", result.err)
+	}
+	if _, err := os.Stat(codex + "/skills/porta/SKILL.md"); err != nil {
+		t.Fatalf("the copy did not land in .codex: %v", err)
+	}
+	m, _ = m.Update(result)
+	if m.busy || m.pendingRoot != base {
+		t.Fatalf("after result: busy=%v pendingRoot=%q", m.busy, m.pendingRoot)
+	}
+}
+
+// TestCopySkillPickerFanOut checks the fan-out entry: with two possible
+// targets the picker offers "all", cycling reaches it, and enter copies into
+// every target at once. It also drives the copy from a drilled config dir.
+func TestCopySkillPickerFanOut(t *testing.T) {
+	base := t.TempDir()
+	claude := base + "/.claude"
+	codex := base + "/.codex"
+	opencode := base + "/.opencode"
+	skillPath := writeTUISkill(t, claude, "porta")
+	for _, dir := range []string{codex, opencode} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newDash("test", base)
+	m.setSize(100, 30)
+	m, _ = m.Update(scanResultMsg{root: base, dirs: []discovery.ConfigDir{
+		{Path: claude, Skills: []discovery.Skill{{Name: "porta", Path: skillPath}}},
+		{Path: codex},
+		{Path: opencode},
+	}})
+
+	// Drill into .claude and open the picker on the skill row.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.Update(key("c"))
+	if m.mode != modePicker || len(m.picker.targets) != 3 {
+		t.Fatalf("picker = %+v, want 2 dirs plus the fan-out", m.picker)
+	}
+
+	// Cycle to the fan-out entry (k wraps backwards to the last one).
+	m, _ = m.Update(key("k"))
+	if got := m.picker.targets[m.picker.index]; len(got.dirs) != 2 {
+		t.Fatalf("fan-out entry = %+v, want both dirs", got)
+	}
+	if footer := m.viewFooter(); !strings.Contains(footer, "all 2 config dirs") {
+		t.Fatalf("footer misses the fan-out label: %q", footer)
+	}
+
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.busy || cmd == nil {
+		t.Fatal("enter did not start the fan-out copy")
+	}
+	if result := findActionResult(t, cmd()); result.err != nil {
+		t.Fatalf("fan-out copy failed: %v", result.err)
+	}
+	for _, dir := range []string{codex, opencode} {
+		if _, err := os.Stat(dir + "/skills/porta/SKILL.md"); err != nil {
+			t.Fatalf("the copy did not land in %s: %v", dir, err)
+		}
+	}
+}
+
+// TestCopySkillRefusals checks the guard rails: a drifted group, a
+// non-skill row, and a machine where every config dir already has the skill.
+func TestCopySkillRefusals(t *testing.T) {
+	base := t.TempDir()
+
+	m := newDash("test", base)
+	m.setSize(100, 30)
+	m, _ = m.Update(scanResultMsg{root: base, dirs: []discovery.ConfigDir{
+		{Path: base + "/.claude", Skills: []discovery.Skill{{Name: "drifty", Path: base + "/.claude/skills/drifty", Hash: "aaa"}}},
+		{Path: base + "/.codex", Skills: []discovery.Skill{{Name: "drifty", Path: base + "/.codex/skills/drifty", Hash: "bbb"}}},
+	}})
+
+	// A drifted group is refused with a pointer to the paths view.
+	m, _ = m.Update(key("2"))
+	m, _ = m.Update(key("c"))
+	if m.mode != modeNormal || !strings.Contains(m.status, "drifted") {
+		t.Fatalf("drifted copy: mode=%v status=%q", m.mode, m.status)
+	}
+
+	// A plugin row is not copyable.
+	m, _ = m.Update(key("3"))
+	m.plugins = []discovery.PluginGroup{{Key: "p", Name: "p"}}
+	m, _ = m.Update(key("c"))
+	if m.mode != modeNormal || !strings.Contains(m.status, "skill rows") {
+		t.Fatalf("plugin copy: mode=%v status=%q", m.mode, m.status)
+	}
+
+	// Every config dir already holding the skill leaves nothing to pick.
+	identical := m
+	identical.pendingRoot = base // let the next scan result through
+	identical, _ = identical.Update(scanResultMsg{root: base, dirs: []discovery.ConfigDir{
+		{Path: base + "/.claude", Skills: []discovery.Skill{{Name: "same", Path: base + "/.claude/skills/same", Hash: "aaa"}}},
+		{Path: base + "/.codex", Skills: []discovery.Skill{{Name: "same", Path: base + "/.codex/skills/same", Hash: "aaa"}}},
+	}})
+	identical, _ = identical.Update(key("2"))
+	identical, _ = identical.Update(key("c"))
+	if identical.mode != modeNormal || !strings.Contains(identical.status, "already has") {
+		t.Fatalf("saturated copy: mode=%v status=%q", identical.mode, identical.status)
+	}
+}

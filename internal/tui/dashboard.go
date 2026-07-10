@@ -34,6 +34,7 @@ const (
 	modeNormal dashMode = iota
 	modeInput
 	modeConfirm
+	modePicker
 )
 
 // inputKind selects what the footer input line collects while the dashboard
@@ -57,18 +58,21 @@ const (
 	actionToggle
 	actionInstall
 	actionAddMarket
+	actionCopySkill
 )
 
 // pendingAction is a mutation waiting for confirmation (or running). label
-// is what the footer shows; path feeds filesystem deletes; key feeds the
-// claude CLI operations; confirmName, when set, must be typed back to
-// confirm (whole config dirs).
+// is what the footer shows; path feeds filesystem deletes (and is the source
+// dir of a skill copy); key feeds the claude CLI operations; targets are the
+// destination config dirs of a skill copy; confirmName, when set, must be
+// typed back to confirm (whole config dirs).
 type pendingAction struct {
 	kind        actionKind
 	label       string
 	path        string
 	key         string
-	enable      bool // actionToggle: the target state
+	enable      bool     // actionToggle: the target state
+	targets     []string // actionCopySkill: the destination config dirs
 	confirmName string
 }
 
@@ -107,9 +111,32 @@ func runAction(a pendingAction) tea.Cmd {
 			_, err = manage.InstallPlugin(a.key)
 		case actionAddMarket:
 			_, err = manage.AddMarketplace(a.key)
+		case actionCopySkill:
+			err = copySkillAction(a)
 		}
 		return actionResultMsg{label: a.label, err: err}
 	}
+}
+
+// copySkillAction copies the skill at a.path into every target config dir,
+// folding the per-target outcomes into one error (nil when every copy
+// landed). The TUI never forces: a target that already holds the skill is
+// reported, and the paths view is where a stale copy gets deleted first.
+func copySkillAction(a pendingAction) error {
+	var problems []string
+	for _, target := range a.targets {
+		result := manage.InstallSkillInto(a.path, target, false)
+		switch result.Status {
+		case manage.SkillSkipped:
+			problems = append(problems, abbreviateHome(target)+": already exists")
+		case manage.SkillFailed:
+			problems = append(problems, abbreviateHome(target)+": "+result.Err.Error())
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
+	return nil
 }
 
 // dashView selects which list the dashboard browses: the discovered config
@@ -143,6 +170,23 @@ const (
 type artifactRef struct {
 	kind  artifactKind
 	index int
+}
+
+// pickerTarget is one entry of the copy-target picker: a label for the
+// footer and the config dirs the entry copies into (one dir, or all of them
+// for the fan-out entry).
+type pickerTarget struct {
+	label string
+	dirs  []string
+}
+
+// pickerState is the open copy-to-harness picker: the skill being copied and
+// the targets the footer cycles through.
+type pickerState struct {
+	skillName string
+	srcPath   string
+	targets   []pickerTarget
+	index     int
 }
 
 // pageState is an open full-screen detail page, with its own scroll.
@@ -212,6 +256,10 @@ type dashModel struct {
 	// page, when non-nil, is the full-screen detail page on top of the
 	// browse layout.
 	page *pageState
+
+	// picker, when non-nil, is the copy-to-harness picker owning the footer
+	// (mode modePicker), opened by "c" on a skill row.
+	picker *pickerState
 
 	// pending is the mutation waiting in the confirm prompt; busy marks one
 	// running; status is the transient result line shown in the footer until
@@ -472,6 +520,11 @@ func (m dashModel) Update(msg tea.Msg) (dashModel, tea.Cmd) {
 		m.drilled = false
 		m.marketDrilled = false
 		m.page = nil
+		// The picker's source and targets belong to the old scan.
+		m.picker = nil
+		if m.mode == modePicker {
+			m.mode = modeNormal
+		}
 		if m.selected >= m.listLen() {
 			m.selected = 0
 		}
@@ -505,6 +558,8 @@ func (m dashModel) Update(msg tea.Msg) (dashModel, tea.Cmd) {
 			return m.updateInputKey(msg)
 		case modeConfirm:
 			return m.updateConfirmKey(msg)
+		case modePicker:
+			return m.updatePickerKey(msg)
 		}
 		return m.updateNormalKey(msg)
 	}
@@ -623,14 +678,16 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 		return m.requestInstall()
 
 	case "c":
-		if m.view != viewDoctorTab {
-			m.status = itemMutedStyle.Render("clean works from the doctor view (5)")
+		// In the doctor view "c" flips to the clean candidates; everywhere
+		// else it copies the selected skill to another harness.
+		if m.view == viewDoctorTab {
+			if !m.cleanDrilled {
+				m.cleanDrilled = true
+				m.resetList()
+			}
 			return m, nil
 		}
-		if !m.cleanDrilled {
-			m.cleanDrilled = true
-			m.resetList()
-		}
+		return m.requestCopy(), nil
 
 	case "a":
 		if m.view != viewMarketsTab {
@@ -730,6 +787,119 @@ func (m dashModel) requestDelete() dashModel {
 		m.input.Focus()
 	}
 	return m
+}
+
+// requestCopy resolves what "c" copies: a skill of the skills view or of the
+// drilled config dir. It opens the footer picker over every config dir that
+// does not hold the skill yet (plus a fan-out entry when there are several).
+// A drifted group is refused: which copy to propagate is exactly what the
+// paths view disambiguates.
+func (m dashModel) requestCopy() dashModel {
+	if m.listLen() == 0 || m.page != nil {
+		return m
+	}
+
+	var src discovery.Skill
+	switch {
+	case m.view == viewSkillsTab:
+		g := m.skills[m.selected]
+		if g.Drift == discovery.DriftDrifted {
+			m.status = itemMutedStyle.Render(fmt.Sprintf("%s drifted across its %d copies: copy a specific one from the paths view", g.Name, len(g.Locations)))
+			return m
+		}
+		src = g.Locations[0].Item
+
+	case m.view == viewPathsTab && m.drilled:
+		ref := m.drillRefs()[m.selected]
+		if ref.kind != refSkill {
+			m.status = itemMutedStyle.Render("only skills are portable across harnesses")
+			return m
+		}
+		src = m.dirs[m.drillParent].Skills[ref.index]
+
+	default:
+		m.status = itemMutedStyle.Render("copy works on skill rows: the skills view (2) or a drilled config dir")
+		return m
+	}
+
+	targets := m.copyTargets(src.Name)
+	if len(targets) == 0 {
+		if len(m.dirs) <= 1 {
+			m.status = itemMutedStyle.Render("no other config dir to copy into")
+		} else {
+			m.status = itemMutedStyle.Render("every config dir already has " + src.Name)
+		}
+		return m
+	}
+	if len(targets) > 1 {
+		var all []string
+		for _, t := range targets {
+			all = append(all, t.dirs...)
+		}
+		targets = append(targets, pickerTarget{label: fmt.Sprintf("all %d config dirs", len(all)), dirs: all})
+	}
+
+	m.picker = &pickerState{skillName: src.Name, srcPath: src.Path, targets: targets}
+	m.mode = modePicker
+	return m
+}
+
+// copyTargets lists the discovered config dirs a skill named name can be
+// copied into: every dir that does not already hold a skill with that name.
+func (m dashModel) copyTargets(name string) []pickerTarget {
+	holds := make(map[string]bool)
+	for _, g := range m.skills {
+		if g.Name != name {
+			continue
+		}
+		for _, loc := range g.Locations {
+			holds[loc.ConfigDir] = true
+		}
+	}
+
+	var targets []pickerTarget
+	for _, dir := range m.dirs {
+		if holds[dir.Path] {
+			continue
+		}
+		targets = append(targets, pickerTarget{label: abbreviateHome(dir.Path), dirs: []string{dir.Path}})
+	}
+	return targets
+}
+
+// updatePickerKey applies the copy-picker key map: j/k (arrows, tab, h/l)
+// cycle through the targets, enter launches the copy, esc cancels.
+func (m dashModel) updatePickerKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
+	if m.picker == nil {
+		m.mode = modeNormal
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc", "backspace":
+		m.picker = nil
+		m.mode = modeNormal
+
+	case "j", "down", "l", "right", "tab":
+		m.picker.index = (m.picker.index + 1) % len(m.picker.targets)
+
+	case "k", "up", "h", "left":
+		m.picker.index = (m.picker.index - 1 + len(m.picker.targets)) % len(m.picker.targets)
+
+	case "enter":
+		picker := *m.picker
+		m.picker = nil
+		m.mode = modeNormal
+		m.busy = true
+		target := picker.targets[picker.index]
+		return m, tea.Batch(runAction(pendingAction{
+			kind:    actionCopySkill,
+			label:   "copied " + picker.skillName + " to " + target.label,
+			path:    picker.srcPath,
+			targets: target.dirs,
+		}), m.spin.Tick)
+	}
+	return m, nil
 }
 
 // drillDeleteAction builds the delete action for one artifact of the
@@ -1192,6 +1362,13 @@ func (m dashModel) viewFooter() string {
 		}
 		return line
 
+	case m.mode == modePicker && m.picker != nil:
+		target := m.picker.targets[m.picker.index]
+		return inputPromptStyle.Render(" copy "+m.picker.skillName+" to ▸ ") +
+			itemSelectedStyle.Render(target.label) +
+			itemMutedStyle.Render(fmt.Sprintf("  %d/%d", m.picker.index+1, len(m.picker.targets))) +
+			footerStyle.Render("  j/k: cycle · enter: copy · esc: cancel")
+
 	case m.mode == modeConfirm && m.pending != nil:
 		if m.pending.confirmName != "" {
 			line := errorTextStyle.Render(" type "+m.pending.confirmName+" to delete it all ▸ ") + m.input.View()
@@ -1223,6 +1400,12 @@ func (m dashModel) viewFooter() string {
 			return footerStyle.Render(" d: remove · enter: open · esc: back · j/k: move · q: quit")
 		}
 		return footerStyle.Render(" enter: open · c: clean · 1-5: view · o: root · j/k: move · q: quit")
+	}
+	if m.view == viewSkillsTab {
+		return footerStyle.Render(" enter: open · c: copy · d: delete · 1-5: view · o: root · j/k: move · q: quit")
+	}
+	if m.view == viewPathsTab && m.drilled {
+		return footerStyle.Render(" enter: open · c: copy · d: delete · t: toggle · esc: back · j/k: move · q: quit")
 	}
 	return footerStyle.Render(" enter: open · d: delete · t: toggle · 1-5: view · o: root · j/k: move · q: quit")
 }
