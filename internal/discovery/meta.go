@@ -12,11 +12,13 @@ import (
 // plugins, marketplace.json for marketplaces. Parsing is best-effort: a
 // missing or malformed file just yields empty metadata, never an error.
 
-// parseFrontmatter reads the YAML-ish frontmatter block of a markdown file
-// (the lines between the two --- fences) into a key/value map. Only simple
-// single-line "key: value" pairs are read, which is all a SKILL.md needs;
-// quoting around the value is stripped.
-func parseFrontmatter(file string) map[string]string {
+// ParseFrontmatter reads the YAML-ish frontmatter block of a markdown file
+// (the lines between the two --- fences) into a key/value map, or nil when
+// the file has no complete frontmatter block. Only simple single-line
+// "key: value" pairs are read, which is all a SKILL.md needs; quoting around
+// the value is stripped. Exported so the doctor checks validate skills with
+// the exact same reading discovery uses.
+func ParseFrontmatter(file string) map[string]string {
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		return nil
@@ -47,7 +49,7 @@ func parseFrontmatter(file string) map[string]string {
 
 // skillDescription reads the description of the skill living in dir.
 func skillDescription(dir string) string {
-	return parseFrontmatter(filepath.Join(dir, "SKILL.md"))["description"]
+	return ParseFrontmatter(filepath.Join(dir, "SKILL.md"))["description"]
 }
 
 // pluginManifest is the relevant subset of a plugin's

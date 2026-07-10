@@ -2,6 +2,7 @@ package tui
 
 import (
 	"agentic-developer/internal/discovery"
+	"agentic-developer/internal/doctor"
 	"agentic-developer/internal/manage"
 	"fmt"
 	"os"
@@ -111,7 +112,8 @@ func runAction(a pendingAction) tea.Cmd {
 }
 
 // dashView selects which list the dashboard browses: the discovered config
-// dirs, or one of the artifact-centric aggregations. Switched with 1-4.
+// dirs, one of the artifact-centric aggregations, or the doctor findings.
+// Switched with 1-5.
 type dashView int
 
 // The views, in tab order.
@@ -120,10 +122,11 @@ const (
 	viewSkillsTab
 	viewPluginsTab
 	viewMarketsTab
+	viewDoctorTab
 )
 
 // viewNames labels the tabs, indexed by dashView.
-var viewNames = []string{"paths", "skills", "plugins", "marketplaces"}
+var viewNames = []string{"paths", "skills", "plugins", "marketplaces", "doctor"}
 
 // artifactKind tags an entry of a drilled config dir.
 type artifactKind int
@@ -148,19 +151,26 @@ type pageState struct {
 	offset  int
 }
 
-// scanResultMsg carries a finished discovery scan back into the program.
+// scanResultMsg carries a finished discovery scan (and the doctor findings
+// computed over it) back into the program.
 type scanResultMsg struct {
-	root string
-	dirs []discovery.ConfigDir
-	err  error
+	root     string
+	dirs     []discovery.ConfigDir
+	findings []doctor.Finding
+	err      error
 }
 
 // scanCmd runs a discovery scan off the update loop, so a large tree never
-// freezes the UI.
+// freezes the UI. The doctor checks run here too: they read artifact files
+// from disk, which is just as much not the update loop's business.
 func scanCmd(root string) tea.Cmd {
 	return func() tea.Msg {
 		dirs, err := discovery.Scan(root)
-		return scanResultMsg{root: root, dirs: dirs, err: err}
+		var findings []doctor.Finding
+		if err == nil {
+			findings = doctor.Check(dirs)
+		}
+		return scanResultMsg{root: root, dirs: dirs, findings: findings, err: err}
 	}
 }
 
@@ -215,10 +225,12 @@ type dashModel struct {
 	dirs        []discovery.ConfigDir
 	scanErr     error
 
-	// The artifact-centric aggregations, recomputed on every scan result.
-	skills  []discovery.SkillGroup
-	plugins []discovery.PluginGroup
-	markets []discovery.MarketplaceGroup
+	// The artifact-centric aggregations and the doctor findings, recomputed
+	// on every scan result.
+	skills   []discovery.SkillGroup
+	plugins  []discovery.PluginGroup
+	markets  []discovery.MarketplaceGroup
+	findings []doctor.Finding
 
 	input    textinput.Model
 	inputFor inputKind
@@ -303,11 +315,13 @@ func (m dashModel) listLen() int {
 		return len(m.skills)
 	case viewPluginsTab:
 		return len(m.plugins)
-	default:
+	case viewMarketsTab:
 		if m.marketDrilled {
 			return len(m.marketCatalog())
 		}
 		return len(m.markets)
+	default:
+		return len(m.findings)
 	}
 }
 
@@ -439,6 +453,7 @@ func (m dashModel) Update(msg tea.Msg) (dashModel, tea.Cmd) {
 		m.skills = discovery.GroupSkills(msg.dirs)
 		m.plugins = discovery.GroupPlugins(msg.dirs)
 		m.markets = discovery.GroupMarketplaces(msg.dirs)
+		m.findings = msg.findings
 		m.drilled = false
 		m.marketDrilled = false
 		m.page = nil
@@ -537,7 +552,7 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 			m.ensureSelectedVisible()
 		}
 
-	case "1", "2", "3", "4":
+	case "1", "2", "3", "4", "5":
 		view := dashView(key[0] - '1')
 		if view != m.view {
 			m.view = view
@@ -618,6 +633,10 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 // exactly one place; otherwise the paths view is where you pick which copy.
 func (m dashModel) requestDelete() dashModel {
 	if m.listLen() == 0 || m.page != nil {
+		return m
+	}
+	if m.view == viewDoctorTab {
+		m.status = itemMutedStyle.Render("findings are informational: fix them from the other views")
 		return m
 	}
 
@@ -876,7 +895,7 @@ func (m dashModel) openSelected() dashModel {
 		g := m.plugins[m.selected]
 		m.page = &pageState{title: "plugin: " + g.Key, content: pluginGroupPreview(g)}
 
-	default:
+	case viewMarketsTab:
 		if m.marketDrilled {
 			name := m.marketCatalog()[m.selected]
 			m.page = &pageState{title: "catalog: " + name, content: m.catalogEntryPreview(m.selected)}
@@ -884,6 +903,10 @@ func (m dashModel) openSelected() dashModel {
 		}
 		g := m.markets[m.selected]
 		m.page = &pageState{title: "marketplace: " + g.Name, content: marketplaceGroupPreview(g)}
+
+	default:
+		f := m.findings[m.selected]
+		m.page = &pageState{title: "finding: " + f.Check, content: findingPreview(f)}
 	}
 
 	return m
@@ -1142,9 +1165,9 @@ func (m dashModel) viewFooter() string {
 		if m.marketDrilled {
 			return footerStyle.Render(" i: install · enter: open · esc: back · j/k: move · q: quit")
 		}
-		return footerStyle.Render(" enter: open · i: catalog · a: add · d: delete · 1-4: view · o: root · q: quit")
+		return footerStyle.Render(" enter: open · i: catalog · a: add · d: delete · 1-5: view · o: root · q: quit")
 	}
-	return footerStyle.Render(" enter: open · d: delete · t: toggle · 1-4: view · o: root · j/k: move · q: quit")
+	return footerStyle.Render(" enter: open · d: delete · t: toggle · 1-5: view · o: root · j/k: move · q: quit")
 }
 
 // viewList renders the left panel: the rows of the active view, one line per
@@ -1166,6 +1189,9 @@ func (m dashModel) viewList(inner int) string {
 
 	case total == 0 && m.pendingRoot != "":
 		b.WriteString(itemMutedStyle.Render("scanning..."))
+
+	case total == 0 && m.view == viewDoctorTab:
+		b.WriteString(itemSelectedStyle.Render("✓ no problems found"))
 
 	case total == 0:
 		b.WriteString(itemMutedStyle.Render("nothing found\nunder " + abbreviateHome(m.root)))
@@ -1220,12 +1246,20 @@ func (m dashModel) rowLabel(i, budget int, style lipgloss.Style) string {
 		g := m.plugins[i]
 		return groupRow(g.Key, len(g.Locations), g.Drift, budget, style)
 
-	default:
+	case viewMarketsTab:
 		if m.marketDrilled {
 			return m.catalogRowLabel(i, budget, style)
 		}
 		g := m.markets[i]
 		return groupRow(g.Name, len(g.Locations), g.Drift, budget, style)
+
+	default:
+		f := m.findings[i]
+		tag, tagStyle := "E", itemErrorStyle
+		if f.Severity == doctor.Warning {
+			tag, tagStyle = "W", itemWarnStyle
+		}
+		return tagStyle.Render(tag+" ") + style.Render(truncateHead(f.Message, budget-2))
 	}
 }
 
@@ -1351,12 +1385,14 @@ func (m dashModel) detailLines(inner int) []string {
 			content = skillGroupPreview(m.skills[m.selected])
 		case viewPluginsTab:
 			content = pluginGroupPreview(m.plugins[m.selected])
-		default:
+		case viewMarketsTab:
 			if m.marketDrilled {
 				content = m.catalogEntryPreview(m.selected)
 			} else {
 				content = marketplaceGroupPreview(m.markets[m.selected])
 			}
+		default:
+			content = findingPreview(m.findings[m.selected])
 		}
 	}
 
@@ -1380,6 +1416,19 @@ func truncateTail(s string, max int) string {
 		return s
 	}
 	return "…" + string(runes[len(runes)-max+1:])
+}
+
+// truncateHead fits s into max cells, keeping the head: for a finding
+// message that is the identifying part.
+func truncateHead(s string, max int) string {
+	if max < 1 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max-1]) + "…"
 }
 
 // displayPath shows a config dir compactly: relative to the scan root when

@@ -283,6 +283,57 @@ func TestGroupPluginsByIdentity(t *testing.T) {
 	}
 }
 
+// TestReadClaudeRegistry verifies the raw registry reader parses the three
+// registry files and reports which ones were readable.
+func TestReadClaudeRegistry(t *testing.T) {
+	configDir := t.TempDir()
+	mkdirs(t, configDir, "plugins")
+
+	installed := `{"version": 2, "plugins": {
+		"tool@mkt": [{"version": "1.0.0", "installPath": "/cache/mkt/tool/1.0.0"}]
+	}}`
+	known := `{"mkt": {
+		"source": {"source": "directory", "path": "/src/mkt"},
+		"installLocation": "/src/mkt"
+	}}`
+	settings := `{"enabledPlugins": {"tool@mkt": true, "ghost@mkt": true}}`
+
+	if err := os.WriteFile(filepath.Join(configDir, "plugins", "installed_plugins.json"), []byte(installed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "plugins", "known_marketplaces.json"), []byte(known), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := ReadClaudeRegistry(configDir)
+	if !reg.HasInstalled || !reg.HasMarketplaces {
+		t.Fatalf("Has flags = %v/%v, want true/true", reg.HasInstalled, reg.HasMarketplaces)
+	}
+	installs := reg.InstalledPlugins["tool@mkt"]
+	if len(installs) != 1 || installs[0].Version != "1.0.0" || installs[0].InstallPath != "/cache/mkt/tool/1.0.0" {
+		t.Fatalf("installs = %+v", installs)
+	}
+	mkt := reg.KnownMarketplaces["mkt"]
+	if mkt.Kind != "directory" || mkt.Path != "/src/mkt" || mkt.InstallLocation != "/src/mkt" {
+		t.Fatalf("marketplace = %+v", mkt)
+	}
+	if mkt.SourceLabel() != "directory /src/mkt" {
+		t.Fatalf("source label = %q", mkt.SourceLabel())
+	}
+	if !reg.EnabledPlugins["ghost@mkt"] {
+		t.Fatal("enabledPlugins missing ghost@mkt")
+	}
+
+	// An empty dir has no registry at all.
+	empty := ReadClaudeRegistry(t.TempDir())
+	if empty.HasInstalled || empty.HasMarketplaces || empty.EnabledPlugins != nil {
+		t.Fatalf("empty dir registry = %+v, want nothing readable", empty)
+	}
+}
+
 // TestParseFrontmatter verifies the SKILL.md frontmatter reader.
 func TestParseFrontmatter(t *testing.T) {
 	dir := t.TempDir()
@@ -292,7 +343,7 @@ func TestParseFrontmatter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	meta := parseFrontmatter(file)
+	meta := ParseFrontmatter(file)
 	if meta["name"] != "my-skill" {
 		t.Fatalf("name = %q", meta["name"])
 	}
@@ -304,7 +355,7 @@ func TestParseFrontmatter(t *testing.T) {
 	if err := os.WriteFile(file, []byte("# Just markdown\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if parseFrontmatter(file) != nil {
+	if ParseFrontmatter(file) != nil {
 		t.Fatal("expected nil for a file without frontmatter")
 	}
 }

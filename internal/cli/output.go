@@ -23,6 +23,9 @@ var (
 	mutedStyle   = outRenderer.NewStyle().Foreground(brand.Grey)
 	successStyle = outRenderer.NewStyle().Bold(true).Foreground(brand.Teal)
 	dangerStyle  = outRenderer.NewStyle().Foreground(brand.Red)
+	// Finding marks for the doctor report, on stdout (RenderError owns stderr).
+	errorMarkStyle = outRenderer.NewStyle().Bold(true).Foreground(brand.Red)
+	warnMarkStyle  = outRenderer.NewStyle().Bold(true).Foreground(brand.Amber)
 
 	// stderr styles.
 	errorStyle = errRenderer.NewStyle().Bold(true).Foreground(brand.Red)
@@ -38,6 +41,12 @@ func muted(s string) string { return mutedStyle.Render(s) }
 // danger styles a detail that needs the user's attention on stdout, like a
 // drifted duplicate.
 func danger(s string) string { return dangerStyle.Render(s) }
+
+// errorMark styles the error tag of a doctor finding.
+func errorMark(s string) string { return errorMarkStyle.Render(s) }
+
+// warnMark styles the warning tag of a doctor finding.
+func warnMark(s string) string { return warnMarkStyle.Render(s) }
 
 // command styles a CLI subcommand word in help output.
 func command(s string) string { return commandStyle.Render(s) }
