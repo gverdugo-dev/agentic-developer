@@ -210,6 +210,74 @@ func TestViewSwitchDrillAndPage(t *testing.T) {
 	}
 }
 
+// TestGroupRowDriftBadge verifies duplicated group rows carry the content
+// badge: "=" for identical copies, "≠" for drifted ones, none otherwise.
+func TestGroupRowDriftBadge(t *testing.T) {
+	cases := []struct {
+		name      string
+		locations int
+		drift     discovery.DriftState
+		want      string
+		absent    []string
+	}{
+		{name: "identical", locations: 2, drift: discovery.DriftIdentical, want: "=", absent: []string{"≠"}},
+		{name: "drifted", locations: 2, drift: discovery.DriftDrifted, want: "≠", absent: []string{"="}},
+		{name: "single", locations: 1, drift: discovery.DriftSingle, want: "×1", absent: []string{"=", "≠"}},
+		{name: "unknown", locations: 2, drift: discovery.DriftUnknown, want: "×2", absent: []string{"=", "≠"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			row := groupRow("my-skill", tc.locations, tc.drift, 40, itemStyle)
+			if !strings.Contains(row, tc.want) {
+				t.Fatalf("row %q misses %q", row, tc.want)
+			}
+			for _, s := range tc.absent {
+				if strings.Contains(row, s) {
+					t.Fatalf("row %q should not contain %q", row, s)
+				}
+			}
+		})
+	}
+}
+
+// TestGroupPreviewHashState verifies the group detail shows the drift
+// summary and the per-location hash state.
+func TestGroupPreviewHashState(t *testing.T) {
+	drifted := discovery.SkillGroup{
+		Name:  "x",
+		Drift: discovery.DriftDrifted,
+		Locations: []discovery.Located[discovery.Skill]{
+			{ConfigDir: "/a/.claude", Hash: "aaaa1111bbbb"},
+			{ConfigDir: "/b/.codex", Hash: "cccc2222dddd", DiffCount: 3},
+		},
+	}
+	content := skillGroupPreview(drifted)
+	if !strings.Contains(content, "content drifted") {
+		t.Fatalf("preview misses the drift summary: %q", content)
+	}
+	if !strings.Contains(content, "aaaa1111") || !strings.Contains(content, "cccc2222") {
+		t.Fatalf("preview misses the short hashes: %q", content)
+	}
+	if !strings.Contains(content, "3 file(s) differ") {
+		t.Fatalf("preview misses the differing-file count: %q", content)
+	}
+
+	identical := drifted
+	identical.Drift = discovery.DriftIdentical
+	identical.Locations = []discovery.Located[discovery.Skill]{
+		{ConfigDir: "/a/.claude", Hash: "aaaa1111bbbb"},
+		{ConfigDir: "/b/.codex", Hash: "aaaa1111bbbb"},
+	}
+	content = skillGroupPreview(identical)
+	if !strings.Contains(content, "identical in every location") {
+		t.Fatalf("preview misses the identical summary: %q", content)
+	}
+	if strings.Contains(content, "differ") {
+		t.Fatalf("identical preview should not report differing files: %q", content)
+	}
+}
+
 // TestDeleteConfirmFlow drives "d" end to end on a real temp skill: confirm
 // prompt, y, action runs, result triggers a rescan.
 func TestDeleteConfirmFlow(t *testing.T) {

@@ -32,16 +32,22 @@ type ConfigDir struct {
 }
 
 // Skill is one skill folder, with the metadata parsed from its SKILL.md
-// frontmatter.
+// frontmatter. Hash is the stable content hash of the skill dir ("" when it
+// could not be hashed); fileHashes backs the drifted-file counts of
+// duplicate groups.
 type Skill struct {
 	Name        string
 	Path        string
 	Description string
+	Hash        string
+	fileHashes  map[string]string
 }
 
 // Plugin is one plugin available in a config dir. Marketplace and Enabled
 // are only populated when the plugin comes from a harness registry; Version
-// and Description come from the registry or the plugin's own manifest.
+// and Description come from the registry or the plugin's own manifest. Hash
+// is the stable content hash of the plugin dir ("" when it could not be
+// hashed); fileHashes backs the drifted-file counts of duplicate groups.
 type Plugin struct {
 	Name        string
 	Marketplace string
@@ -49,17 +55,23 @@ type Plugin struct {
 	Enabled     bool
 	Path        string
 	Description string
+	Hash        string
+	fileHashes  map[string]string
 }
 
 // Marketplace is one plugin marketplace registered in a config dir. Source
 // is the human-readable origin ("github owner/repo", "directory /path"),
 // empty for folder-based marketplaces. PluginNames is the catalog its
-// manifest offers.
+// manifest offers. Hash is the stable content hash of the marketplace dir
+// ("" when it could not be hashed); fileHashes backs the drifted-file
+// counts of duplicate groups.
 type Marketplace struct {
 	Name        string
 	Source      string
 	Path        string
 	PluginNames []string
+	Hash        string
+	fileHashes  map[string]string
 }
 
 // Scan walks the tree under root and returns every harness config dir found,
@@ -152,10 +164,13 @@ func collectSkills(configDir string) []Skill {
 	var skills []Skill
 	for _, name := range artifactDirs(configDir, "skills") {
 		path := filepath.Join(configDir, "skills", name)
+		hash, files := hashArtifactDir(path)
 		skills = append(skills, Skill{
 			Name:        name,
 			Path:        path,
 			Description: skillDescription(path),
+			Hash:        hash,
+			fileHashes:  files,
 		})
 	}
 	return skills
@@ -168,11 +183,14 @@ func folderPlugins(configDir string) []Plugin {
 	for _, name := range artifactDirs(configDir, "plugins") {
 		path := filepath.Join(configDir, "plugins", name)
 		man := readPluginManifest(path)
+		hash, files := hashArtifactDir(path)
 		plugins = append(plugins, Plugin{
 			Name:        name,
 			Version:     man.Version,
 			Path:        path,
 			Description: man.Description,
+			Hash:        hash,
+			fileHashes:  files,
 		})
 	}
 	return plugins
@@ -184,10 +202,13 @@ func folderMarketplaces(configDir string) []Marketplace {
 	var marketplaces []Marketplace
 	for _, name := range artifactDirs(configDir, "marketplaces") {
 		path := filepath.Join(configDir, "marketplaces", name)
+		hash, files := hashArtifactDir(path)
 		marketplaces = append(marketplaces, Marketplace{
 			Name:        name,
 			Path:        path,
 			PluginNames: marketplacePluginNames(path),
+			Hash:        hash,
+			fileHashes:  files,
 		})
 	}
 	return marketplaces

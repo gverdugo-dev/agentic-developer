@@ -1214,18 +1214,18 @@ func (m dashModel) rowLabel(i, budget int, style lipgloss.Style) string {
 
 	case viewSkillsTab:
 		g := m.skills[i]
-		return groupRow(g.Name, len(g.Locations), budget, style)
+		return groupRow(g.Name, len(g.Locations), g.Drift, budget, style)
 
 	case viewPluginsTab:
 		g := m.plugins[i]
-		return groupRow(g.Key, len(g.Locations), budget, style)
+		return groupRow(g.Key, len(g.Locations), g.Drift, budget, style)
 
 	default:
 		if m.marketDrilled {
 			return m.catalogRowLabel(i, budget, style)
 		}
 		g := m.markets[i]
-		return groupRow(g.Name, len(g.Locations), budget, style)
+		return groupRow(g.Name, len(g.Locations), g.Drift, budget, style)
 	}
 }
 
@@ -1271,10 +1271,15 @@ func (m dashModel) drillRowLabel(i, budget int, style lipgloss.Style) string {
 	return itemMutedStyle.Render(tag+" ") + style.Render(truncateTail(name, budget-2))
 }
 
-// groupRow renders "name ×N" fitted to budget cells.
-func groupRow(name string, locations, budget int, style lipgloss.Style) string {
-	count := fmt.Sprintf("×%d", locations)
-	return style.Render(truncateTail(name, budget-lipgloss.Width(count)-1)) + " " + itemMutedStyle.Render(count)
+// groupRow renders "name ×N" fitted to budget cells, plus the content badge
+// of a duplicated group: "=" when every copy is identical, "≠" when the
+// copies drifted.
+func groupRow(name string, locations int, drift discovery.DriftState, budget int, style lipgloss.Style) string {
+	suffix := " " + itemMutedStyle.Render(fmt.Sprintf("×%d", locations))
+	if badge := driftBadge(drift); badge != "" {
+		suffix += " " + badge
+	}
+	return style.Render(truncateTail(name, budget-lipgloss.Width(suffix))) + suffix
 }
 
 // viewDetail renders the right panel: the preview of the current selection,

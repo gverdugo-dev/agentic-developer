@@ -33,8 +33,9 @@ func configDirPreview(dir discovery.ConfigDir) string {
 func skillPreview(s discovery.Skill) string {
 	var b strings.Builder
 	b.WriteString(itemSelectedStyle.Render(s.Name) + "\n")
-	b.WriteString(itemMutedStyle.Render("("+abbreviateHome(s.Path)+")") + "\n\n")
-	b.WriteString(descriptionOr(s.Description))
+	b.WriteString(itemMutedStyle.Render("("+abbreviateHome(s.Path)+")") + "\n")
+	writeHashLine(&b, s.Hash)
+	b.WriteString("\n" + descriptionOr(s.Description))
 	return b.String()
 }
 
@@ -43,8 +44,10 @@ func skillGroupPreview(g discovery.SkillGroup) string {
 	var b strings.Builder
 	b.WriteString(itemSelectedStyle.Render(g.Name) + "\n\n")
 	b.WriteString(descriptionOr(g.Description) + "\n\n")
+	writeDriftSummary(&b, g.Drift)
 	writeLocations(&b, len(g.Locations), func(i int) string {
-		return abbreviateHome(g.Locations[i].ConfigDir)
+		loc := g.Locations[i]
+		return locationLabel(abbreviateHome(loc.ConfigDir), loc.Hash, loc.DiffCount)
 	})
 	return b.String()
 }
@@ -66,6 +69,7 @@ func pluginPreview(p discovery.Plugin) string {
 	if p.Path != "" {
 		b.WriteString(itemMutedStyle.Render("("+abbreviateHome(p.Path)+")") + "\n")
 	}
+	writeHashLine(&b, p.Hash)
 	b.WriteString("\n" + descriptionOr(p.Description))
 	return b.String()
 }
@@ -83,13 +87,14 @@ func pluginGroupPreview(g discovery.PluginGroup) string {
 		b.WriteString(itemMutedStyle.Render("version ") + g.Version + "\n")
 	}
 	b.WriteString("\n" + descriptionOr(g.Description) + "\n\n")
+	writeDriftSummary(&b, g.Drift)
 	writeLocations(&b, len(g.Locations), func(i int) string {
 		loc := g.Locations[i]
 		label := abbreviateHome(loc.ConfigDir)
 		if loc.Item.Marketplace != "" {
 			label += " " + enabledLabel(loc.Item.Enabled)
 		}
-		return label
+		return locationLabel(label, loc.Hash, loc.DiffCount)
 	})
 	return b.String()
 }
@@ -104,6 +109,7 @@ func marketplacePreview(mkt discovery.Marketplace) string {
 	if mkt.Path != "" {
 		b.WriteString(itemMutedStyle.Render("("+abbreviateHome(mkt.Path)+")") + "\n")
 	}
+	writeHashLine(&b, mkt.Hash)
 	b.WriteString("\n")
 	writeCatalog(&b, mkt.PluginNames)
 	return b.String()
@@ -120,8 +126,10 @@ func marketplaceGroupPreview(g discovery.MarketplaceGroup) string {
 	b.WriteString("\n")
 	writeCatalog(&b, g.PluginNames)
 	b.WriteString("\n")
+	writeDriftSummary(&b, g.Drift)
 	writeLocations(&b, len(g.Locations), func(i int) string {
-		return abbreviateHome(g.Locations[i].ConfigDir)
+		loc := g.Locations[i]
+		return locationLabel(abbreviateHome(loc.ConfigDir), loc.Hash, loc.DiffCount)
 	})
 	return b.String()
 }
@@ -132,6 +140,59 @@ func writeLocations(b *strings.Builder, n int, label func(int) string) {
 	for i := 0; i < n; i++ {
 		b.WriteString(itemMutedStyle.Render("  - ") + label(i) + "\n")
 	}
+}
+
+// writeHashLine writes the content-hash line of a single artifact preview,
+// nothing when the artifact could not be hashed.
+func writeHashLine(b *strings.Builder, hash string) {
+	if hash == "" {
+		return
+	}
+	b.WriteString(itemMutedStyle.Render("hash ") + discovery.ShortHash(hash) + "\n")
+}
+
+// writeDriftSummary phrases a duplicated group's content comparison at the
+// top of its locations block; single groups need none.
+func writeDriftSummary(b *strings.Builder, d discovery.DriftState) {
+	var line string
+	switch d {
+	case discovery.DriftIdentical:
+		line = itemSelectedStyle.Render("= ") + "identical in every location"
+	case discovery.DriftDrifted:
+		line = errorTextStyle.Render("≠ ") + "content drifted between locations"
+	case discovery.DriftUnknown:
+		line = itemMutedStyle.Render("content state unknown")
+	default:
+		return
+	}
+	b.WriteString(line + "\n\n")
+}
+
+// driftBadge marks a duplicated group's content state on its list row: "="
+// when every copy is identical, "≠" when they drifted. Single and unknown
+// groups get no badge.
+func driftBadge(d discovery.DriftState) string {
+	switch d {
+	case discovery.DriftIdentical:
+		return itemSelectedStyle.Render("=")
+	case discovery.DriftDrifted:
+		return errorTextStyle.Render("≠")
+	}
+	return ""
+}
+
+// locationLabel appends a location's hash state to its label: the short
+// content hash, plus how many files differ from the group's first location
+// when any do.
+func locationLabel(label, hash string, diffCount int) string {
+	if hash == "" {
+		return label
+	}
+	label += " " + itemMutedStyle.Render(discovery.ShortHash(hash))
+	if diffCount > 0 {
+		label += " " + errorTextStyle.Render(fmt.Sprintf("≠ %d file(s) differ", diffCount))
+	}
+	return label
 }
 
 // writeCatalog writes the "offers N plugin(s):" block of a marketplace.

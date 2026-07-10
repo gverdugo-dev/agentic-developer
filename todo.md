@@ -134,7 +134,7 @@ marketplace) still requires using the claude CLI by hand, which breaks the
 
 **Deliverable**: PR.
 
-### T2: duplicate detection with content hash + drift  [status: open]
+### T2: duplicate detection with content hash + drift  [status: in-pr]
 
 **Why**: the same skill copied across N config dirs is the most common mess
 in real setups, and the dangerous case is copies that diverged silently.

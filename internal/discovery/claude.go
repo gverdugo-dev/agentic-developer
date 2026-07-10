@@ -51,6 +51,7 @@ func claudePlugins(configDir string) ([]Plugin, bool) {
 			version = installs[len(installs)-1].Version
 			installPath = installs[len(installs)-1].InstallPath
 		}
+		hash, files := hashArtifactDir(installPath)
 		plugins = append(plugins, Plugin{
 			Name:        name,
 			Marketplace: marketplace,
@@ -58,6 +59,8 @@ func claudePlugins(configDir string) ([]Plugin, bool) {
 			Enabled:     enabled[key],
 			Path:        installPath,
 			Description: readPluginManifest(installPath).Description,
+			Hash:        hash,
+			fileHashes:  files,
 		})
 	}
 
@@ -123,11 +126,14 @@ func claudeMarketplaces(configDir string) ([]Marketplace, bool) {
 		case entry.Source.Path != "":
 			source += " " + entry.Source.Path
 		}
+		hash, files := hashArtifactDir(entry.InstallLocation)
 		marketplaces = append(marketplaces, Marketplace{
 			Name:        name,
 			Source:      source,
 			Path:        entry.InstallLocation,
 			PluginNames: marketplacePluginNames(entry.InstallLocation),
+			Hash:        hash,
+			fileHashes:  files,
 		})
 	}
 

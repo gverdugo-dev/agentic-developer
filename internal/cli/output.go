@@ -22,6 +22,7 @@ var (
 	accentStyle  = outRenderer.NewStyle().Foreground(brand.Blue)
 	mutedStyle   = outRenderer.NewStyle().Foreground(brand.Grey)
 	successStyle = outRenderer.NewStyle().Bold(true).Foreground(brand.Teal)
+	dangerStyle  = outRenderer.NewStyle().Foreground(brand.Red)
 
 	// stderr styles.
 	errorStyle = errRenderer.NewStyle().Bold(true).Foreground(brand.Red)
@@ -33,6 +34,10 @@ func accent(s string) string { return accentStyle.Render(s) }
 
 // muted styles secondary detail, like a filesystem path.
 func muted(s string) string { return mutedStyle.Render(s) }
+
+// danger styles a detail that needs the user's attention on stdout, like a
+// drifted duplicate.
+func danger(s string) string { return dangerStyle.Render(s) }
 
 // command styles a CLI subcommand word in help output.
 func command(s string) string { return commandStyle.Render(s) }
