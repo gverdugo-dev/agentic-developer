@@ -336,6 +336,166 @@ func TestToggleUsesClaudeCLI(t *testing.T) {
 	}
 }
 
+// marketsFixture builds a dashboard sitting on the marketplaces view with
+// one registered marketplace offering two plugins, one of them installed.
+func marketsFixture(t *testing.T) dashModel {
+	t.Helper()
+	m := newDash("test", "/root")
+	m.setSize(100, 30)
+	m, _ = m.Update(scanResultMsg{root: "/root", dirs: []discovery.ConfigDir{
+		{
+			Path:    "/root/.claude",
+			Plugins: []discovery.Plugin{{Name: "ai", Marketplace: "mkt", Enabled: true}},
+			Marketplaces: []discovery.Marketplace{
+				{Name: "mkt", Source: "github o/r", PluginNames: []string{"ai", "research"}},
+			},
+		},
+	}})
+	m, _ = m.Update(key("4"))
+	if m.view != viewMarketsTab || m.listLen() != 1 {
+		t.Fatalf("marketplaces view: view=%v listLen=%d", m.view, m.listLen())
+	}
+	return m
+}
+
+// TestInstallFromMarketplaceCatalog drives "i" end to end: it drills into
+// the marketplace catalog, marks the installed entry, and installs the
+// selected one through the claude CLI.
+func TestInstallFromMarketplaceCatalog(t *testing.T) {
+	var got [][]string
+	orig := manage.Exec
+	manage.Exec = func(args ...string) (string, error) {
+		got = append(got, args)
+		return "", nil
+	}
+	defer func() { manage.Exec = orig }()
+
+	m := marketsFixture(t)
+
+	// First "i" drills into the catalog instead of installing anything.
+	m, _ = m.Update(key("i"))
+	if !m.marketDrilled || m.listLen() != 2 {
+		t.Fatalf("after i: marketDrilled=%v listLen=%d, want drilled with 2 entries", m.marketDrilled, m.listLen())
+	}
+	if len(got) != 0 {
+		t.Fatalf("drilling already called claude: %v", got)
+	}
+
+	// The already-installed entry is marked; the other is not.
+	if !strings.Contains(m.catalogEntryPreview(0), "installed") {
+		t.Fatalf("entry 0 preview misses the installed state: %q", m.catalogEntryPreview(0))
+	}
+	if !strings.Contains(m.catalogEntryPreview(1), "not installed") {
+		t.Fatalf("entry 1 preview misses the not-installed state: %q", m.catalogEntryPreview(1))
+	}
+
+	// "i" on the second entry installs research@mkt.
+	m, _ = m.Update(key("j"))
+	m, cmd := m.Update(key("i"))
+	if !m.busy || cmd == nil {
+		t.Fatalf("i did not start the install: busy=%v", m.busy)
+	}
+	result := findActionResult(t, cmd())
+	if result.err != nil {
+		t.Fatalf("install failed: %v", result.err)
+	}
+	if len(got) != 1 || strings.Join(got[0], " ") != "plugin install research@mkt" {
+		t.Fatalf("claude called with %v, want plugin install research@mkt", got)
+	}
+
+	// The result clears busy and schedules the refresh scan.
+	m, _ = m.Update(result)
+	if m.busy || m.pendingRoot != "/root" {
+		t.Fatalf("after result: busy=%v pendingRoot=%q", m.busy, m.pendingRoot)
+	}
+}
+
+// TestCatalogDrillNavigation verifies esc backs out of the catalog restoring
+// the marketplace selection, and that "i" outside the marketplaces view only
+// leaves a hint.
+func TestCatalogDrillNavigation(t *testing.T) {
+	m := marketsFixture(t)
+
+	m, _ = m.Update(key("i"))
+	if !m.marketDrilled {
+		t.Fatal("i did not drill into the catalog")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.marketDrilled || m.selected != 0 {
+		t.Fatalf("esc did not undrill: drilled=%v selected=%d", m.marketDrilled, m.selected)
+	}
+
+	// Outside the marketplaces view "i" is a no-op with a hint.
+	m, _ = m.Update(key("1"))
+	m, cmd := m.Update(key("i"))
+	if cmd != nil || m.busy || m.status == "" {
+		t.Fatalf("i outside marketplaces: cmd=%v busy=%v status=%q", cmd, m.busy, m.status)
+	}
+}
+
+// TestAddMarketplaceInputFlow drives "a" end to end: the footer input opens,
+// an empty source errors in place, and a real one runs the claude CLI add
+// and triggers the rescan.
+func TestAddMarketplaceInputFlow(t *testing.T) {
+	var got [][]string
+	orig := manage.Exec
+	manage.Exec = func(args ...string) (string, error) {
+		got = append(got, args)
+		return "", nil
+	}
+	defer func() { manage.Exec = orig }()
+
+	m := marketsFixture(t)
+
+	// "a" opens the source input with its own prompt.
+	m, _ = m.Update(key("a"))
+	if m.mode != modeInput || m.inputFor != inputMarketSource {
+		t.Fatalf("after a: mode=%v inputFor=%v", m.mode, m.inputFor)
+	}
+	if !strings.Contains(m.viewFooter(), "add marketplace") {
+		t.Fatalf("footer does not show the source input: %q", m.viewFooter())
+	}
+
+	// An empty source is rejected in place.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.inputErr == nil || m.mode != modeInput {
+		t.Fatalf("empty source accepted: err=%v mode=%v", m.inputErr, m.mode)
+	}
+
+	// esc cancels and restores the idle placeholder.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != modeNormal || m.input.Placeholder != rootPlaceholder {
+		t.Fatalf("esc left mode=%v placeholder=%q", m.mode, m.input.Placeholder)
+	}
+
+	// A typed source launches the add through the claude CLI.
+	m, _ = m.Update(key("a"))
+	m.input.SetValue("owner/repo")
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.busy || cmd == nil {
+		t.Fatalf("enter did not start the add: busy=%v", m.busy)
+	}
+	result := findActionResult(t, cmd())
+	if result.err != nil {
+		t.Fatalf("add failed: %v", result.err)
+	}
+	if len(got) != 1 || strings.Join(got[0], " ") != "plugin marketplace add owner/repo" {
+		t.Fatalf("claude called with %v, want plugin marketplace add owner/repo", got)
+	}
+	m, _ = m.Update(result)
+	if m.busy || m.pendingRoot != "/root" {
+		t.Fatalf("after result: busy=%v pendingRoot=%q", m.busy, m.pendingRoot)
+	}
+
+	// "a" outside the marketplaces view only leaves a hint.
+	m.pendingRoot = ""
+	m, _ = m.Update(key("1"))
+	m, _ = m.Update(key("a"))
+	if m.mode != modeNormal || m.status == "" {
+		t.Fatalf("a outside marketplaces: mode=%v status=%q", m.mode, m.status)
+	}
+}
+
 // findActionResult unwraps the tea.Msg of a (possibly batched) action
 // command into its actionResultMsg.
 func findActionResult(t *testing.T, msg tea.Msg) actionResultMsg {

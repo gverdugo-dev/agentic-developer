@@ -115,7 +115,7 @@ only the scaffolder, which misleads every human and agent that reads them.
 
 **Deliverable**: PR whose harness runs green in a fresh clone.
 
-### T1: install plugins + add marketplaces  [status: open]
+### T1: install plugins + add marketplaces  [status: in-pr]
 
 **Why**: closes the management surface. adev can already inspect, delete,
 toggle and uninstall, but the acquisition half (install a plugin, register a

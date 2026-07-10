@@ -37,10 +37,23 @@ func SetPluginEnabled(key string, enabled bool) (string, error) {
 	return Exec("plugin", action, key)
 }
 
+// InstallPlugin installs a plugin ("name@marketplace") from a registered
+// marketplace via the claude CLI, which downloads it into the cache and
+// records it in the registry.
+func InstallPlugin(key string) (string, error) {
+	return Exec("plugin", "install", key)
+}
+
 // UninstallPlugin uninstalls a registry plugin ("name@marketplace") via the
 // claude CLI, which also cleans its cache and registry entries.
 func UninstallPlugin(key string) (string, error) {
 	return Exec("plugin", "uninstall", key)
+}
+
+// AddMarketplace registers a plugin marketplace via the claude CLI. source is
+// whatever claude accepts: a GitHub "owner/repo", a git URL, or a local path.
+func AddMarketplace(source string) (string, error) {
+	return Exec("plugin", "marketplace", "add", source)
 }
 
 // RemoveMarketplace unregisters a marketplace by name via the claude CLI.
