@@ -5,6 +5,7 @@ import (
 	"agentic-developer/internal/discovery"
 	"agentic-developer/internal/doctor"
 	"agentic-developer/internal/manage"
+	"agentic-developer/internal/registry"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,13 +39,15 @@ const (
 )
 
 // inputKind selects what the footer input line collects while the dashboard
-// is in modeInput: a new scan root ("o") or a marketplace source ("a").
+// is in modeInput: a new scan root ("o"), a marketplace source ("a"), or a
+// registry search query ("/" in the explore view).
 type inputKind int
 
 // The input purposes.
 const (
 	inputRoot inputKind = iota
 	inputMarketSource
+	inputExploreQuery
 )
 
 // actionKind is the mutation a pendingAction performs.
@@ -65,7 +68,8 @@ const (
 // is what the footer shows; path feeds filesystem deletes (and is the source
 // dir of a skill copy); key feeds the claude CLI operations; targets are the
 // destination config dirs of a skill copy; confirmName, when set, must be
-// typed back to confirm (whole config dirs).
+// typed back to confirm (whole config dirs); prompt, when set, overrides the
+// confirm question (registry installs phrase their own).
 type pendingAction struct {
 	kind        actionKind
 	label       string
@@ -74,10 +78,14 @@ type pendingAction struct {
 	enable      bool     // actionToggle: the target state
 	targets     []string // actionCopySkill: the destination config dirs
 	confirmName string
+	prompt      string
 }
 
 // question phrases the confirm prompt for the action.
 func (a pendingAction) question() string {
+	if a.prompt != "" {
+		return a.prompt
+	}
 	switch a.kind {
 	case actionUninstall:
 		return "uninstall " + a.key + "?"
@@ -140,8 +148,8 @@ func copySkillAction(a pendingAction) error {
 }
 
 // dashView selects which list the dashboard browses: the discovered config
-// dirs, one of the artifact-centric aggregations, or the doctor findings.
-// Switched with 1-5.
+// dirs, one of the artifact-centric aggregations, the doctor findings, or
+// the skills.sh registry explorer. Switched with 1-6.
 type dashView int
 
 // The views, in tab order.
@@ -151,10 +159,11 @@ const (
 	viewPluginsTab
 	viewMarketsTab
 	viewDoctorTab
+	viewExploreTab
 )
 
 // viewNames labels the tabs, indexed by dashView.
-var viewNames = []string{"paths", "skills", "plugins", "marketplaces", "doctor"}
+var viewNames = []string{"paths", "skills", "plugins", "marketplaces", "doctor", "explore"}
 
 // artifactKind tags an entry of a drilled config dir.
 type artifactKind int
@@ -181,12 +190,17 @@ type pickerTarget struct {
 }
 
 // pickerState is the open copy-to-harness picker: the skill being copied and
-// the targets the footer cycles through.
+// the targets the footer cycles through. fromRegistry marks a registry
+// install: the picked target then goes through an explicit y/N confirm
+// (never install a third-party skill blind), and source names the repo in
+// that prompt.
 type pickerState struct {
-	skillName string
-	srcPath   string
-	targets   []pickerTarget
-	index     int
+	skillName    string
+	srcPath      string
+	targets      []pickerTarget
+	index        int
+	fromRegistry bool
+	source       string
 }
 
 // pageState is an open full-screen detail page, with its own scroll.
@@ -291,6 +305,14 @@ type dashModel struct {
 	findings   []doctor.Finding
 	candidates []clean.Candidate
 
+	// The explore view's state: the registry client, the last search, and
+	// the fetched skills of this session, keyed by their registry ref. The
+	// fetched extraction roots are removed when the program exits.
+	reg            registry.Client
+	exploreQuery   string
+	exploreResults []registry.Skill
+	exploreFetched map[string]registry.Fetched
+
 	input    textinput.Model
 	inputFor inputKind
 	inputErr error
@@ -307,12 +329,14 @@ func newDash(version, root string) dashModel {
 	spin := spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(spinnerStyle))
 
 	return dashModel{
-		version:     version,
-		focus:       panelPaths,
-		root:        root,
-		pendingRoot: root,
-		input:       input,
-		spin:        spin,
+		version:        version,
+		focus:          panelPaths,
+		root:           root,
+		pendingRoot:    root,
+		reg:            registry.New(),
+		exploreFetched: make(map[string]registry.Fetched),
+		input:          input,
+		spin:           spin,
 	}
 }
 
@@ -321,8 +345,8 @@ func newDash(version, root string) dashModel {
 // error stays visible instead of being clipped at the terminal edge.
 func (m *dashModel) setSize(width, height int) {
 	m.width, m.height = width, height
-	// The width budget assumes the widest of the two footer prompts.
-	m.input.Width = width - lipgloss.Width(sourcePrompt) - inputErrorReserve
+	// The width budget assumes the widest of the footer prompts.
+	m.input.Width = width - lipgloss.Width(searchPrompt) - inputErrorReserve
 	if m.input.Width < minInputWidth {
 		m.input.Width = minInputWidth
 	}
@@ -379,6 +403,8 @@ func (m dashModel) listLen() int {
 			return len(m.marketCatalog())
 		}
 		return len(m.markets)
+	case viewExploreTab:
+		return len(m.exploreResults)
 	default:
 		if m.cleanDrilled {
 			return len(m.candidates)
@@ -533,6 +559,12 @@ func (m dashModel) Update(msg tea.Msg) (dashModel, tea.Cmd) {
 		m.ensureSelectedVisible()
 		return m, nil
 
+	case exploreSearchMsg:
+		return m.applyExploreSearch(msg), nil
+
+	case exploreFetchMsg:
+		return m.applyExploreFetch(msg), nil
+
 	case actionResultMsg:
 		m.busy = false
 		if msg.err != nil {
@@ -625,7 +657,7 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 			m.resetList()
 		}
 
-	case "1", "2", "3", "4", "5":
+	case "1", "2", "3", "4", "5", "6":
 		view := dashView(key[0] - '1')
 		if view != m.view {
 			m.view = view
@@ -666,6 +698,9 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 		}
 
 	case "enter":
+		if m.view == viewExploreTab {
+			return m.exploreOpen()
+		}
 		return m.openSelected(), nil
 
 	case "d":
@@ -675,7 +710,23 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 		return m.requestToggle()
 
 	case "i":
+		if m.view == viewExploreTab {
+			return m.requestExploreInstall()
+		}
 		return m.requestInstall()
+
+	case "/":
+		if m.view != viewExploreTab {
+			m.status = itemMutedStyle.Render("search runs in the explore view (6)")
+			return m, nil
+		}
+		m.mode = modeInput
+		m.inputFor = inputExploreQuery
+		m.inputErr = nil
+		m.input.SetValue(m.exploreQuery)
+		m.input.Placeholder = searchPlaceholder
+		m.input.CursorEnd()
+		return m, m.input.Focus()
 
 	case "c":
 		// In the doctor view "c" flips to the clean candidates; everywhere
@@ -719,6 +770,10 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 // exactly one place; otherwise the paths view is where you pick which copy.
 func (m dashModel) requestDelete() dashModel {
 	if m.listLen() == 0 || m.page != nil {
+		return m
+	}
+	if m.view == viewExploreTab {
+		m.status = itemMutedStyle.Render("registry results are installed with i, not deleted")
 		return m
 	}
 	if m.view == viewDoctorTab && !m.cleanDrilled {
@@ -890,8 +945,24 @@ func (m dashModel) updatePickerKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 		picker := *m.picker
 		m.picker = nil
 		m.mode = modeNormal
-		m.busy = true
 		target := picker.targets[picker.index]
+
+		// A registry skill is third-party content: the picked target still
+		// goes through the explicit y/N confirm before anything lands.
+		if picker.fromRegistry {
+			m.pending = &pendingAction{
+				kind:    actionCopySkill,
+				label:   "installed " + picker.skillName + " into " + target.label,
+				path:    picker.srcPath,
+				targets: target.dirs,
+				prompt:  "install " + picker.skillName + " (" + picker.source + ") into " + target.label + "?",
+			}
+			m.mode = modeConfirm
+			m.inputErr = nil
+			return m, nil
+		}
+
+		m.busy = true
 		return m, tea.Batch(runAction(pendingAction{
 			kind:    actionCopySkill,
 			label:   "copied " + picker.skillName + " to " + target.label,
@@ -1191,6 +1262,17 @@ func (m dashModel) updateInputKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 			}), m.spin.Tick)
 		}
 
+		if m.inputFor == inputExploreQuery {
+			query := strings.TrimSpace(m.input.Value())
+			if query == "" {
+				m.inputErr = fmt.Errorf("query is required")
+				return m, nil
+			}
+			m = m.closeInput()
+			m.busy = true
+			return m, tea.Batch(exploreSearchCmd(m.reg, query), m.spin.Tick)
+		}
+
 		root, err := validateRoot(m.input.Value())
 		if err != nil {
 			m.inputErr = err
@@ -1258,12 +1340,16 @@ const (
 	minPanelWidth    = 20
 	inputPrompt      = " new root ▸ "
 	// sourcePrompt heads the footer input while it collects a marketplace
-	// source ("a" in the marketplaces view).
+	// source ("a" in the marketplaces view); searchPrompt while it collects
+	// a registry query ("/" in the explore view). searchPrompt is the widest
+	// of the three, so the input's width budget is computed against it.
 	sourcePrompt = " add marketplace ▸ "
-	// The input placeholders: the idle/root one, and the marketplace source
-	// hint listing what the claude CLI accepts.
+	searchPrompt = " search skills.sh ▸ "
+	// The input placeholders: the idle/root one, the marketplace source hint
+	// listing what the claude CLI accepts, and the registry query.
 	rootPlaceholder   = "/absolute/path"
 	sourcePlaceholder = "owner/repo, git url or /path"
+	searchPlaceholder = "skill name or keywords"
 	// inputErrorReserve is the width kept free at the end of the input line
 	// for the longest validation error ("✗ path must be absolute" plus its
 	// separator). The input scrolls horizontally, so capping its window
@@ -1353,8 +1439,11 @@ func (m dashModel) viewFooter() string {
 	switch {
 	case m.mode == modeInput:
 		prompt := inputPrompt
-		if m.inputFor == inputMarketSource {
+		switch m.inputFor {
+		case inputMarketSource:
 			prompt = sourcePrompt
+		case inputExploreQuery:
+			prompt = searchPrompt
 		}
 		line := inputPromptStyle.Render(prompt) + m.input.View()
 		if m.inputErr != nil {
@@ -1364,10 +1453,14 @@ func (m dashModel) viewFooter() string {
 
 	case m.mode == modePicker && m.picker != nil:
 		target := m.picker.targets[m.picker.index]
-		return inputPromptStyle.Render(" copy "+m.picker.skillName+" to ▸ ") +
+		verb, confirm := "copy", "copy"
+		if m.picker.fromRegistry {
+			verb, confirm = "install", "confirm"
+		}
+		return inputPromptStyle.Render(" "+verb+" "+m.picker.skillName+" to ▸ ") +
 			itemSelectedStyle.Render(target.label) +
 			itemMutedStyle.Render(fmt.Sprintf("  %d/%d", m.picker.index+1, len(m.picker.targets))) +
-			footerStyle.Render("  j/k: cycle · enter: copy · esc: cancel")
+			footerStyle.Render("  j/k: cycle · enter: "+confirm+" · esc: cancel")
 
 	case m.mode == modeConfirm && m.pending != nil:
 		if m.pending.confirmName != "" {
@@ -1393,21 +1486,24 @@ func (m dashModel) viewFooter() string {
 		if m.marketDrilled {
 			return footerStyle.Render(" i: install · enter: open · esc: back · j/k: move · q: quit")
 		}
-		return footerStyle.Render(" enter: open · i: catalog · a: add · d: delete · 1-5: view · o: root · q: quit")
+		return footerStyle.Render(" enter: open · i: catalog · a: add · d: delete · 1-6: view · o: root · q: quit")
 	}
 	if m.view == viewDoctorTab {
 		if m.cleanDrilled {
 			return footerStyle.Render(" d: remove · enter: open · esc: back · j/k: move · q: quit")
 		}
-		return footerStyle.Render(" enter: open · c: clean · 1-5: view · o: root · j/k: move · q: quit")
+		return footerStyle.Render(" enter: open · c: clean · 1-6: view · o: root · j/k: move · q: quit")
+	}
+	if m.view == viewExploreTab {
+		return footerStyle.Render(" /: search · enter: preview · i: install · 1-6: view · j/k: move · q: quit")
 	}
 	if m.view == viewSkillsTab {
-		return footerStyle.Render(" enter: open · c: copy · d: delete · 1-5: view · o: root · j/k: move · q: quit")
+		return footerStyle.Render(" enter: open · c: copy · d: delete · 1-6: view · o: root · j/k: move · q: quit")
 	}
 	if m.view == viewPathsTab && m.drilled {
 		return footerStyle.Render(" enter: open · c: copy · d: delete · t: toggle · esc: back · j/k: move · q: quit")
 	}
-	return footerStyle.Render(" enter: open · d: delete · t: toggle · 1-5: view · o: root · j/k: move · q: quit")
+	return footerStyle.Render(" enter: open · d: delete · t: toggle · 1-6: view · o: root · j/k: move · q: quit")
 }
 
 // viewList renders the left panel: the rows of the active view, one line per
@@ -1435,6 +1531,13 @@ func (m dashModel) viewList(inner int) string {
 
 	case total == 0 && m.view == viewDoctorTab:
 		b.WriteString(itemSelectedStyle.Render("✓ no problems found"))
+
+	case total == 0 && m.view == viewExploreTab:
+		if m.exploreQuery != "" {
+			b.WriteString(itemMutedStyle.Render("no skills match " + fmt.Sprintf("%q", m.exploreQuery) + "\npress / to search again"))
+		} else {
+			b.WriteString(itemMutedStyle.Render("press / to search skills.sh"))
+		}
 
 	case total == 0:
 		b.WriteString(itemMutedStyle.Render("nothing found\nunder " + abbreviateHome(m.root)))
@@ -1498,6 +1601,9 @@ func (m dashModel) rowLabel(i, budget int, style lipgloss.Style) string {
 		}
 		g := m.markets[i]
 		return groupRow(g.Name, len(g.Locations), g.Drift, budget, style)
+
+	case viewExploreTab:
+		return m.exploreRowLabel(i, budget, style)
 
 	default:
 		if m.cleanDrilled {
@@ -1661,6 +1767,8 @@ func (m dashModel) detailLines(inner int) []string {
 			} else {
 				content = marketplaceGroupPreview(m.markets[m.selected])
 			}
+		case viewExploreTab:
+			content = m.exploreEntryPreview(m.selected)
 		default:
 			if m.cleanDrilled {
 				content = candidatePreview(m.candidates[m.selected])

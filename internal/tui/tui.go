@@ -58,7 +58,12 @@ func Run(version, scanRoot string) error {
 		dash:  newDash(version, scanRoot),
 	}
 
-	_, err := tea.NewProgram(root, tea.WithAltScreen()).Run()
+	final, err := tea.NewProgram(root, tea.WithAltScreen()).Run()
+	// The explore view extracts fetched registry skills into temp dirs; they
+	// are only needed while the program can still install them.
+	if m, ok := final.(rootModel); ok {
+		m.dash.cleanupFetched()
+	}
 	return err
 }
 
