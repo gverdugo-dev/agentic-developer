@@ -24,7 +24,7 @@ make install     # go install ./cmd/adev
 make release     # cross-compile all targets into dist/ (the release workflow runs this)
 make e2e         # pty e2e suite for the TUI (requires `expect`); E2E=<name> runs one test
 go build ./...   # compile
-go test ./...    # unit tests (discovery, manage, tui)
+go test ./...    # unit tests (cli, discovery, doctor, manage, tui)
 go vet ./...     # static checks
 gofmt -l .       # formatting check (empty output = clean)
 go doc ./internal/scaffolding   # browse package docs
@@ -49,10 +49,11 @@ internal/cli/               Boundary: every invocation is a Command that parses
   interactive.go            huh form for `adev new` with no args on a terminal.
   scaffold_cmd.go           scaffoldCmd (new + delete): flag parsing + apply/remove.
   scan.go                   scanCmd: discovery scan of a folder tree (--json).
-  list.go                   listCmd: grouped skills/plugins/marketplaces (--json).
+  list.go                   listCmd: grouped skills/plugins/marketplaces (--json, --duplicates).
+  doctor.go                 doctorCmd: the health report over internal/doctor (--json).
   rm.go                     rmCmd: guarded delete of an artifact or config dir.
-  plugin.go                 pluginCmd: enable/disable/uninstall via the claude CLI.
-  marketplace.go            marketplaceCmd: marketplace remove via the claude CLI.
+  plugin.go                 pluginCmd: install/enable/disable/uninstall via the claude CLI.
+  marketplace.go            marketplaceCmd: marketplace add/remove via the claude CLI.
   setup.go                  setupCmd: install bundled skills into a harness.
   version.go                versionCmd + the ldflags-injected Version var.
   update.go                 updateCmd: self-update from the latest release.
@@ -65,8 +66,10 @@ internal/discovery/         Discovery domain core (shared by CLI and TUI).
   discovery.go              Scan: the gitignore-aware walk for config dirs.
   ignore.go                 Default ignore list + scoped .gitignore matching.
   meta.go                   SKILL.md frontmatter, plugin.json, marketplace.json parsing.
-  claude.go                 Claude Code's own plugin registry reader.
-  aggregate.go              Cross-path grouping (SkillGroup, PluginGroup, ...).
+  claude.go                 Claude Code's own plugin registry reader (ReadClaudeRegistry).
+  hash.go                   Content hashes per artifact dir, behind drift detection.
+  aggregate.go              Cross-path grouping (SkillGroup, PluginGroup, ...) + DriftState.
+internal/doctor/            Health checks: finding model + skill/manifest/registry checks.
 internal/manage/            Mutations on discovered resources.
   manage.go                 DeleteArtifact: guarded filesystem deletes.
   claude.go                 Plugin/marketplace operations through the claude CLI.
@@ -161,7 +164,11 @@ skills (with SKILL.md frontmatter), plugins and marketplaces. Rules:
 
 `aggregate.go` regroups the per-dir results into the artifact-centric views
 (one group per skill name / plugin identity / marketplace name, each with its
-locations), which power the TUI's views 2-4 and `adev list`.
+locations), which power the TUI's views 2-4 and `adev list`. Each artifact dir
+gets a stable content hash (`hash.go`: relative paths + file contents, walked
+deterministically), so a group knows its `DriftState`: copies identical
+everywhere, drifted (with a per-location differing-file count), single, or
+unknown. `adev list --duplicates` filters to multi-location groups.
 
 ### How management works
 
@@ -170,9 +177,16 @@ locations), which power the TUI's views 2-4 and `adev list`.
 - `DeleteArtifact(path)` removes a directory only after validating it is
   absolute, exists, and is a harness config dir or inside one; anything else
   is refused, so adev can never be talked into deleting an arbitrary folder.
-- Plugin and marketplace operations (enable/disable/uninstall, marketplace
-  remove) shell out to the `claude` CLI, which owns the registry and its
-  cache. Never write those JSON files by hand.
+- Plugin and marketplace operations (install/enable/disable/uninstall,
+  marketplace add/remove) shell out to the `claude` CLI, which owns the
+  registry and its cache. Never write those JSON files by hand.
+
+`internal/doctor` is the read-only health layer: `doctor.Check(dirs)` runs
+every check (missing/invalid SKILL.md or frontmatter, the 200-line house cap,
+invalid plugin/marketplace manifests, enabled-but-not-installed plugins,
+cache/registry drift, dead marketplace directory sources) and returns
+prioritized findings with fix hints. It powers `adev doctor` and the TUI's
+doctor view.
 
 ### How the TUI works
 
@@ -180,14 +194,17 @@ locations), which power the TUI's views 2-4 and `adev list`.
 and delegates to one sub-model per state: the intro animation, then the
 dashboard. The dashboard (`dashboard.go`) is a single model holding:
 
-- **Views 1-4** (paths / skills / plugins / marketplaces), switched with the
-  number keys. The paths view drills into a config dir on enter; enter again
-  opens a full-screen detail page. `previews.go` builds the content shared by
-  the right preview panel and the detail pages.
+- **Views 1-5** (paths / skills / plugins / marketplaces / doctor), switched
+  with the number keys. The paths view drills into a config dir on enter;
+  enter again opens a full-screen detail page. The marketplaces view drills
+  into a catalog with `i` (and installs the selected entry with `i` again).
+  Group rows carry the drift badge (`=` identical, `≠` drifted). The doctor
+  view lists findings with fix-hint detail pages. `previews.go` builds the
+  content shared by the right preview panel and the detail pages.
 - **Modes**: normal navigation, the footer input line (`o` changes the scan
-  root), and the confirm prompt (`d` asks y/n; deleting a whole config dir
-  demands its name typed back). `t` toggles an installed plugin without
-  confirm.
+  root, `a` adds a marketplace from a source), and the confirm prompt (`d`
+  asks y/n; deleting a whole config dir demands its name typed back). `t`
+  toggles an installed plugin without confirm.
 - **Async work**: scans and mutations run off the update loop as `tea.Cmd`s;
   a finished mutation always triggers a rescan of the current root.
 

@@ -19,8 +19,13 @@ that shows every artifact on your machine and lets you act on it.
   folder (gitignore-aware) and group the artifacts across them, with `--json`
   output for scripts.
 - **Management**: `adev rm`, `adev plugin` and `adev marketplace` delete
-  artifacts, toggle or uninstall installed plugins, and remove marketplaces;
-  the same operations the TUI offers.
+  artifacts, install, toggle or uninstall plugins, and add or remove
+  marketplaces; the same operations the TUI offers.
+- **Duplicate detection**: artifacts are content-hashed, so copies of the same
+  artifact across config dirs show up as identical (`=`) or drifted (`≠`), and
+  `adev list --duplicates` filters to them.
+- **Health checks**: `adev doctor` reports broken artifacts (missing or invalid
+  manifests, ghost plugins, dead marketplace sources) with fix hints.
 - **Create and delete** skills, plugins and plugin-marketplaces.
 - **Bundled skills**: `adev setup` installs adev's own skills into your harness,
   teaching the agent how to use the tool and an opinionated way to build
@@ -75,10 +80,11 @@ adev                                                  # open the TUI (terminal o
 adev new <artifact> <name> [--scope s] [--harness h] [--force]
 adev delete <artifact> <name> [--scope s] [--harness h]
 adev scan [path] [--json]
-adev list <skills|plugins|marketplaces> [path] [--json]
+adev list <skills|plugins|marketplaces> [path] [--json] [--duplicates]
+adev doctor [path] [--json]
 adev rm <absolute-path> [--yes]
-adev plugin <enable|disable|uninstall> <name@marketplace>
-adev marketplace remove <name>
+adev plugin <install|enable|disable|uninstall> <name@marketplace>
+adev marketplace <add <source>|remove <name>>
 adev setup [harness]
 adev update
 adev version
@@ -141,7 +147,7 @@ adev new skill my-new-skill --force
 Running `adev` with no arguments on a terminal opens the dashboard (the lazygit
 model: the bare binary is the interactive tool). It scans the directory you
 started it in, always adds your home config dirs (`~/.claude`, `~/.codex`,
-`~/.opencode`), and browses the results in four views:
+`~/.opencode`), and browses the results in five views:
 
 | View               | Shows                                                        |
 | ------------------ | ------------------------------------------------------------ |
@@ -149,13 +155,14 @@ started it in, always adds your home config dirs (`~/.claude`, `~/.codex`,
 | `2` skills         | every skill across all config dirs, grouped by name          |
 | `3` plugins        | every plugin identity (`name@marketplace`), grouped          |
 | `4` marketplaces   | every registered marketplace, grouped by name                |
+| `5` doctor         | every doctor finding, with a fix hint on its detail page     |
 
 The left panel is the browse list, the right panel previews the selection, and
 enter opens a full-screen detail page. Keys:
 
 | Key             | Action                                                         |
 | --------------- | -------------------------------------------------------------- |
-| `1`-`4`         | switch view                                                    |
+| `1`-`5`         | switch view                                                    |
 | `j`/`k`, arrows | move the selection (or scroll the focused panel / open page)   |
 | `tab`, `h`/`l`  | switch focus between the list and the preview panel            |
 | `enter`         | drill into a config dir, or open the detail page               |
@@ -163,10 +170,15 @@ enter opens a full-screen detail page. Keys:
 | `o`             | change the scan root (footer input; absolute path, `~` works)  |
 | `d`             | delete the selection (y/n; config dirs demand the typed name)  |
 | `t`             | enable/disable the selected installed plugin                   |
+| `i`             | marketplaces: open the catalog; on a catalog entry, install it |
+| `a`             | marketplaces: add a marketplace from a source (footer input)   |
 | `q`, `ctrl+c`   | quit                                                           |
 
-Group rows (`×N`) that live in more than one place cannot be deleted or toggled
-from the aggregated views; the paths view is where you pick which copy.
+Group rows that live in more than one place carry a content badge, `=` when
+every copy is identical and `≠` when they drifted, and single or unhashed
+groups show `×N`; the detail page lists each location's hash and how many
+files differ. Aggregated rows cannot be deleted or toggled from those views;
+the paths view is where you pick which copy.
 
 ## Discovering and managing artifacts
 
@@ -180,14 +192,22 @@ adev scan ~/dev --json
 # Every skill under a folder, grouped by name with its locations
 adev list skills ~/dev
 
+# Only the skills living in more than one place (with = / ≠ drift state)
+adev list skills ~/dev --duplicates
+
+# Report every broken artifact under a folder, with fix hints
+adev doctor ~/dev
+
 # Delete an artifact folder, or a whole config dir (typed-name confirm)
 adev rm /abs/path/.claude/skills/old-skill
 
-# Toggle or uninstall an installed plugin (delegated to the claude CLI)
+# Install, toggle or uninstall a plugin (delegated to the claude CLI)
+adev plugin install personal@gonzaloverdugo
 adev plugin disable personal@gonzaloverdugo
 adev plugin uninstall personal@gonzaloverdugo
 
-# Remove a registered marketplace (delegated to the claude CLI)
+# Add or remove a registered marketplace (delegated to the claude CLI)
+adev marketplace add gverdugo-dev/some-marketplace
 adev marketplace remove gonzaloverdugo
 ```
 
@@ -218,8 +238,10 @@ The command flows through three layers:
    - **`scaffolding`** (`internal/scaffolding`): the typed model, harness
      detection, the embedded layout config, and the create/remove engine.
    - **`discovery`** (`internal/discovery`): the gitignore-aware scan for
-     config dirs, artifact metadata parsing, the Claude registry reader, and
-     the cross-path grouping.
+     config dirs, artifact metadata parsing, the Claude registry reader, the
+     cross-path grouping, and the content hashes behind drift detection.
+   - **`doctor`** (`internal/doctor`): the health checks behind `adev doctor`
+     and the TUI's doctor view.
    - **`manage`** (`internal/manage`): the mutations on discovered resources;
      guarded filesystem deletes, and plugin/marketplace operations delegated
      to the `claude` CLI.
@@ -338,14 +360,16 @@ To change or extend a layout, edit `structures.json` and rebuild.
 │   ├── cli/                         # One file per command + dispatch
 │   │   ├── cli.go                   # Command interface, registry, Run
 │   │   ├── scaffold_cmd.go          # `new` + `delete`
-│   │   ├── scan.go / list.go        # Discovery commands (--json)
+│   │   ├── scan.go / list.go        # Discovery commands (--json, --duplicates)
+│   │   ├── doctor.go                # `adev doctor`: the health report
 │   │   ├── rm.go                    # Guarded artifact/config-dir delete
-│   │   ├── plugin.go                # enable / disable / uninstall
-│   │   ├── marketplace.go           # marketplace remove
+│   │   ├── plugin.go                # install / enable / disable / uninstall
+│   │   ├── marketplace.go           # marketplace add / remove
 │   │   └── setup.go                 # `adev setup`: install bundled skills
 │   ├── scaffolding/                 # Typed model + layout engine
 │   │   └── structures.json          # Embedded folder layouts
-│   ├── discovery/                   # Gitignore-aware scan + grouping
+│   ├── discovery/                   # Gitignore-aware scan + grouping + hashes
+│   ├── doctor/                      # Health checks behind `adev doctor`
 │   ├── manage/                      # Deletes + claude CLI operations
 │   ├── tui/                         # The Bubble Tea dashboard
 │   └── brand/                       # The shared color palette
