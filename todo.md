@@ -99,7 +99,7 @@ recipe by hand.
 
 ## Tasks
 
-### T0: committed e2e harness + docs refresh  [status: open]
+### T0: committed e2e harness + docs refresh  [status: in-pr]
 
 **Why**: the pty e2e flows that verified the TUI live outside the repo, so
 no one else can run or extend them; and README.md/CLAUDE.md still describe
