@@ -171,19 +171,19 @@ checklist.
 
 **Deliverable**: PR.
 
-### T4: adev clean  [status: open, depends: T3, benefits from T2]
+### T4: adev clean  [status: in-pr, depends: T3, benefits from T2]
 
 **Why**: caches accumulate stale plugin versions and orphans, and doctor
 findings need an actuator; deleting dozens of items one by one with `d`
 does not scale.
 
-- [ ] `internal/clean`: candidate collector (old cached plugin versions
+- [x] `internal/clean`: candidate collector (old cached plugin versions
       keeping the installed one, orphaned cache dirs, dead marketplaces,
       doctor-flagged broken artifacts).
-- [ ] Dry-run by default, `--apply` to execute; in the TUI, per-candidate
+- [x] Dry-run by default, `--apply` to execute; in the TUI, per-candidate
       confirmation reusing the existing confirm flow.
-- [ ] CLI: `adev clean [path] [--json] [--apply]`; TUI action reachable from
-      the doctor view.
+- [x] CLI: `adev clean [path] [--json] [--apply]`; TUI action reachable from
+      the doctor view (`c`).
 
 **Deliverable**: PR.
 

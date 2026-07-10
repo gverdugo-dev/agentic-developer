@@ -26,6 +26,9 @@ that shows every artifact on your machine and lets you act on it.
   `adev list --duplicates` filters to them.
 - **Health checks**: `adev doctor` reports broken artifacts (missing or invalid
   manifests, ghost plugins, dead marketplace sources) with fix hints.
+- **Cleanup**: `adev clean` lists the removable dead weight (stale cached
+  plugin versions, orphaned caches, dead marketplaces, unloadable artifacts)
+  with its reclaimable size; dry-run by default, `--apply` removes it.
 - **Create and delete** skills, plugins and plugin-marketplaces.
 - **Bundled skills**: `adev setup` installs adev's own skills into your harness,
   teaching the agent how to use the tool and an opinionated way to build
@@ -82,6 +85,7 @@ adev delete <artifact> <name> [--scope s] [--harness h]
 adev scan [path] [--json]
 adev list <skills|plugins|marketplaces> [path] [--json] [--duplicates]
 adev doctor [path] [--json]
+adev clean [path] [--json] [--apply]
 adev rm <absolute-path> [--yes]
 adev plugin <install|enable|disable|uninstall> <name@marketplace>
 adev marketplace <add <source>|remove <name>>
@@ -155,7 +159,7 @@ started it in, always adds your home config dirs (`~/.claude`, `~/.codex`,
 | `2` skills         | every skill across all config dirs, grouped by name          |
 | `3` plugins        | every plugin identity (`name@marketplace`), grouped          |
 | `4` marketplaces   | every registered marketplace, grouped by name                |
-| `5` doctor         | every doctor finding, with a fix hint on its detail page     |
+| `5` doctor         | every doctor finding, with a fix hint on its detail page; `c` flips to the removable clean candidates |
 
 The left panel is the browse list, the right panel previews the selection, and
 enter opens a full-screen detail page. Keys:
@@ -170,6 +174,7 @@ enter opens a full-screen detail page. Keys:
 | `o`             | change the scan root (footer input; absolute path, `~` works)  |
 | `d`             | delete the selection (y/n; config dirs demand the typed name)  |
 | `t`             | enable/disable the selected installed plugin                   |
+| `c`             | doctor: list the clean candidates; `d` removes one (y/n)       |
 | `i`             | marketplaces: open the catalog; on a catalog entry, install it |
 | `a`             | marketplaces: add a marketplace from a source (footer input)   |
 | `q`, `ctrl+c`   | quit                                                           |
@@ -197,6 +202,11 @@ adev list skills ~/dev --duplicates
 
 # Report every broken artifact under a folder, with fix hints
 adev doctor ~/dev
+
+# List the removable dead weight (stale cache versions, orphans, dead
+# marketplaces, broken artifacts) and what it reclaims; --apply removes it
+adev clean ~/dev
+adev clean ~/dev --apply
 
 # Delete an artifact folder, or a whole config dir (typed-name confirm)
 adev rm /abs/path/.claude/skills/old-skill
@@ -242,6 +252,8 @@ The command flows through three layers:
      cross-path grouping, and the content hashes behind drift detection.
    - **`doctor`** (`internal/doctor`): the health checks behind `adev doctor`
      and the TUI's doctor view.
+   - **`clean`** (`internal/clean`): the removal candidates built on discovery
+     and doctor, behind `adev clean` and the TUI's clean list.
    - **`manage`** (`internal/manage`): the mutations on discovered resources;
      guarded filesystem deletes, and plugin/marketplace operations delegated
      to the `claude` CLI.
@@ -362,6 +374,7 @@ To change or extend a layout, edit `structures.json` and rebuild.
 │   │   ├── scaffold_cmd.go          # `new` + `delete`
 │   │   ├── scan.go / list.go        # Discovery commands (--json, --duplicates)
 │   │   ├── doctor.go                # `adev doctor`: the health report
+│   │   ├── clean.go                 # `adev clean`: dry-run + --apply removals
 │   │   ├── rm.go                    # Guarded artifact/config-dir delete
 │   │   ├── plugin.go                # install / enable / disable / uninstall
 │   │   ├── marketplace.go           # marketplace add / remove
@@ -370,6 +383,7 @@ To change or extend a layout, edit `structures.json` and rebuild.
 │   │   └── structures.json          # Embedded folder layouts
 │   ├── discovery/                   # Gitignore-aware scan + grouping + hashes
 │   ├── doctor/                      # Health checks behind `adev doctor`
+│   ├── clean/                       # Removal candidates behind `adev clean`
 │   ├── manage/                      # Deletes + claude CLI operations
 │   ├── tui/                         # The Bubble Tea dashboard
 │   └── brand/                       # The shared color palette

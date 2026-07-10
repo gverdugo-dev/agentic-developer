@@ -24,7 +24,7 @@ make install     # go install ./cmd/adev
 make release     # cross-compile all targets into dist/ (the release workflow runs this)
 make e2e         # pty e2e suite for the TUI (requires `expect`); E2E=<name> runs one test
 go build ./...   # compile
-go test ./...    # unit tests (cli, discovery, doctor, manage, tui)
+go test ./...    # unit tests (cli, clean, discovery, doctor, manage, tui)
 go vet ./...     # static checks
 gofmt -l .       # formatting check (empty output = clean)
 go doc ./internal/scaffolding   # browse package docs
@@ -51,6 +51,7 @@ internal/cli/               Boundary: every invocation is a Command that parses
   scan.go                   scanCmd: discovery scan of a folder tree (--json).
   list.go                   listCmd: grouped skills/plugins/marketplaces (--json, --duplicates).
   doctor.go                 doctorCmd: the health report over internal/doctor (--json).
+  clean.go                  cleanCmd: removal candidates via internal/clean (--json, --apply).
   rm.go                     rmCmd: guarded delete of an artifact or config dir.
   plugin.go                 pluginCmd: install/enable/disable/uninstall via the claude CLI.
   marketplace.go            marketplaceCmd: marketplace add/remove via the claude CLI.
@@ -70,6 +71,8 @@ internal/discovery/         Discovery domain core (shared by CLI and TUI).
   hash.go                   Content hashes per artifact dir, behind drift detection.
   aggregate.go              Cross-path grouping (SkillGroup, PluginGroup, ...) + DriftState.
 internal/doctor/            Health checks: finding model + skill/manifest/registry checks.
+internal/clean/             Removal candidates (stale caches, orphans, dead marketplaces,
+                            broken artifacts) built on discovery + doctor; Apply removes one.
 internal/manage/            Mutations on discovered resources.
   manage.go                 DeleteArtifact: guarded filesystem deletes.
   claude.go                 Plugin/marketplace operations through the claude CLI.
@@ -188,6 +191,15 @@ cache/registry drift, dead marketplace directory sources) and returns
 prioritized findings with fix hints. It powers `adev doctor` and the TUI's
 doctor view.
 
+`internal/clean` is the actuator on top: `clean.Collect(dirs, findings)`
+derives removal candidates (stale cached plugin versions keeping the
+installed one, orphaned cache folders, dead directory marketplaces, and the
+doctor findings whose remedy is removal), each with its reclaimable size and
+its removal action. `clean.Apply` executes one candidate: registry-owned
+entries go through the claude CLI, plain folders through `DeleteArtifact`.
+It powers `adev clean` (dry-run by default, `--apply` removes) and the TUI's
+clean list.
+
 ### How the TUI works
 
 `internal/tui` is a Bubble Tea program with a root model that owns the screen
@@ -199,8 +211,10 @@ dashboard. The dashboard (`dashboard.go`) is a single model holding:
   enter again opens a full-screen detail page. The marketplaces view drills
   into a catalog with `i` (and installs the selected entry with `i` again).
   Group rows carry the drift badge (`=` identical, `≠` drifted). The doctor
-  view lists findings with fix-hint detail pages. `previews.go` builds the
-  content shared by the right preview panel and the detail pages.
+  view lists findings with fix-hint detail pages, and `c` flips it to the
+  clean candidates, where `d` removes the selection after a y/n confirm.
+  `previews.go` builds the content shared by the right preview panel and the
+  detail pages.
 - **Modes**: normal navigation, the footer input line (`o` changes the scan
   root, `a` adds a marketplace from a source), and the confirm prompt (`d`
   asks y/n; deleting a whole config dir demands its name typed back). `t`
