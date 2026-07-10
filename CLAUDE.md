@@ -24,7 +24,7 @@ make install     # go install ./cmd/adev
 make release     # cross-compile all targets into dist/ (the release workflow runs this)
 make e2e         # pty e2e suite for the TUI (requires `expect`); E2E=<name> runs one test
 go build ./...   # compile
-go test ./...    # unit tests (cli, clean, discovery, doctor, manage, tui)
+go test ./...    # unit tests (cli, clean, discovery, doctor, harness, manage, tui)
 go vet ./...     # static checks
 gofmt -l .       # formatting check (empty output = clean)
 go doc ./internal/scaffolding   # browse package docs
