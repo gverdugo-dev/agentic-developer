@@ -3,7 +3,7 @@ package clean
 import (
 	"agentic-developer/internal/discovery"
 	"agentic-developer/internal/doctor"
-	"agentic-developer/internal/manage"
+	"agentic-developer/internal/harness"
 	"agentic-developer/internal/scaffolding"
 	"encoding/json"
 	"os"
@@ -249,17 +249,18 @@ func TestCollectSorted(t *testing.T) {
 	}
 }
 
-// stubExec replaces manage.Exec for the test's lifetime, recording every
-// argument list.
+// stubExec replaces harness.ClaudeExec (the Claude adapter's CLI executor,
+// which Apply reaches through manage's helpers) for the test's lifetime,
+// recording every argument list.
 func stubExec(t *testing.T) *[][]string {
 	t.Helper()
 	var got [][]string
-	orig := manage.Exec
-	manage.Exec = func(args ...string) (string, error) {
+	orig := harness.ClaudeExec
+	harness.ClaudeExec = func(args ...string) (string, error) {
 		got = append(got, args)
 		return "", nil
 	}
-	t.Cleanup(func() { manage.Exec = orig })
+	t.Cleanup(func() { harness.ClaudeExec = orig })
 	return &got
 }
 

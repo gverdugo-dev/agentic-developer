@@ -4,7 +4,7 @@ import (
 	"agentic-developer/internal/clean"
 	"agentic-developer/internal/discovery"
 	"agentic-developer/internal/doctor"
-	"agentic-developer/internal/manage"
+	"agentic-developer/internal/harness"
 	"os"
 	"strings"
 	"testing"
@@ -437,12 +437,12 @@ func TestConfigDirDeleteNeedsTypedName(t *testing.T) {
 // the right arguments, via the stubbed executor.
 func TestToggleUsesClaudeCLI(t *testing.T) {
 	var got [][]string
-	orig := manage.Exec
-	manage.Exec = func(args ...string) (string, error) {
+	orig := harness.ClaudeExec
+	harness.ClaudeExec = func(args ...string) (string, error) {
 		got = append(got, args)
 		return "", nil
 	}
-	defer func() { manage.Exec = orig }()
+	defer func() { harness.ClaudeExec = orig }()
 
 	m := newDash("test", "/root")
 	m.setSize(100, 30)
@@ -494,12 +494,12 @@ func marketsFixture(t *testing.T) dashModel {
 // selected one through the claude CLI.
 func TestInstallFromMarketplaceCatalog(t *testing.T) {
 	var got [][]string
-	orig := manage.Exec
-	manage.Exec = func(args ...string) (string, error) {
+	orig := harness.ClaudeExec
+	harness.ClaudeExec = func(args ...string) (string, error) {
 		got = append(got, args)
 		return "", nil
 	}
-	defer func() { manage.Exec = orig }()
+	defer func() { harness.ClaudeExec = orig }()
 
 	m := marketsFixture(t)
 
@@ -569,12 +569,12 @@ func TestCatalogDrillNavigation(t *testing.T) {
 // and triggers the rescan.
 func TestAddMarketplaceInputFlow(t *testing.T) {
 	var got [][]string
-	orig := manage.Exec
-	manage.Exec = func(args ...string) (string, error) {
+	orig := harness.ClaudeExec
+	harness.ClaudeExec = func(args ...string) (string, error) {
 		got = append(got, args)
 		return "", nil
 	}
-	defer func() { manage.Exec = orig }()
+	defer func() { harness.ClaudeExec = orig }()
 
 	m := marketsFixture(t)
 
@@ -763,12 +763,12 @@ func TestCleanRemoveConfirmFlow(t *testing.T) {
 // candidate shells out to the claude CLI instead of touching the disk.
 func TestCleanRegistryCandidateUsesClaudeCLI(t *testing.T) {
 	var got [][]string
-	orig := manage.Exec
-	manage.Exec = func(args ...string) (string, error) {
+	orig := harness.ClaudeExec
+	harness.ClaudeExec = func(args ...string) (string, error) {
 		got = append(got, args)
 		return "", nil
 	}
-	defer func() { manage.Exec = orig }()
+	defer func() { harness.ClaudeExec = orig }()
 
 	m := cleanFixture(t, t.TempDir())
 	m, _ = m.Update(key("c"))

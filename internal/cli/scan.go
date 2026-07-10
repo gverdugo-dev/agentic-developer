@@ -23,13 +23,23 @@ func (scanCmd) Synopsis() string {
 }
 
 // scanReport is the JSON shape of one discovered config dir. Slices are
-// initialized so empty categories encode as [] instead of null.
+// initialized so empty categories encode as [] instead of null. Prompts and
+// instructions only carry data for harnesses that have them (Codex prompts,
+// CLAUDE.md/AGENTS.md/opencode.json awareness).
 type scanReport struct {
 	Path         string              `json:"path"`
 	Harness      string              `json:"harness"`
 	Skills       []skillReport       `json:"skills"`
 	Plugins      []pluginReport      `json:"plugins"`
 	Marketplaces []marketplaceReport `json:"marketplaces"`
+	Prompts      []promptReport      `json:"prompts,omitempty"`
+	Instructions []string            `json:"instructions,omitempty"`
+}
+
+// promptReport is the JSON shape of one prompt file.
+type promptReport struct {
+	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
 }
 
 // skillReport is the JSON shape of one skill.
@@ -95,6 +105,19 @@ func reportMarketplaces(marketplaces []discovery.Marketplace) []marketplaceRepor
 	return out
 }
 
+// reportPrompts maps the prompt files to their JSON shape; nil when the
+// harness has none, so the field stays omitted.
+func reportPrompts(prompts []discovery.Prompt) []promptReport {
+	if len(prompts) == 0 {
+		return nil
+	}
+	out := make([]promptReport, 0, len(prompts))
+	for _, p := range prompts {
+		out = append(out, promptReport{Name: p.Name, Path: p.Path})
+	}
+	return out
+}
+
 // Run parses the optional root positional (default: the working directory)
 // and the --json flag, runs the scan, and prints the findings.
 func (c scanCmd) Run(args []string) error {
@@ -147,6 +170,8 @@ func printScanJSON(dirs []discovery.ConfigDir) error {
 			Skills:       reportSkills(dir.Skills),
 			Plugins:      reportPlugins(dir.Plugins),
 			Marketplaces: reportMarketplaces(dir.Marketplaces),
+			Prompts:      reportPrompts(dir.Prompts),
+			Instructions: dir.Instructions,
 		})
 	}
 
@@ -163,11 +188,12 @@ func printScanReport(root string, dirs []discovery.ConfigDir) {
 	}
 
 	for _, dir := range dirs {
-		printSuccess("%s %s %s",
-			accent(dir.Path),
-			scaffolding.AIHarnesses[dir.Harness],
-			muted(fmt.Sprintf("(%d skills, %d plugins, %d marketplaces)",
-				len(dir.Skills), len(dir.Plugins), len(dir.Marketplaces))))
+		counts := fmt.Sprintf("(%d skills, %d plugins, %d marketplaces", len(dir.Skills), len(dir.Plugins), len(dir.Marketplaces))
+		if len(dir.Prompts) > 0 {
+			counts += fmt.Sprintf(", %d prompts", len(dir.Prompts))
+		}
+		counts += ")"
+		printSuccess("%s %s %s", accent(dir.Path), scaffolding.AIHarnesses[dir.Harness], muted(counts))
 	}
 	printInfo("%s", muted(fmt.Sprintf("%d config dir(s) found", len(dirs))))
 }

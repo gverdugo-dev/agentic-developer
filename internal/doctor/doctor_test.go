@@ -199,16 +199,27 @@ func TestMarketplaceManifest(t *testing.T) {
 	}
 }
 
-// TestNonClaudeSkipsManifests verifies plugin.json checks do not fire for
-// other harnesses, whose plugins are not Claude-shaped.
-func TestNonClaudeSkipsManifests(t *testing.T) {
+// TestValidationComesFromTheAdapter verifies each harness's own validators
+// run: plugin.json checks never fire for opencode (whose plugins are not
+// Claude-shaped), while its adapter flags a TS plugin without its index.ts
+// entry point.
+func TestValidationComesFromTheAdapter(t *testing.T) {
+	pluginPath := t.TempDir()
+	write(t, pluginPath, "package.json", `{"name": "ts-plugin"}`)
 	dir := discovery.ConfigDir{
 		Path:    t.TempDir(),
 		Harness: scaffolding.Opencode,
-		Plugins: []discovery.Plugin{{Name: "ts-plugin", Path: t.TempDir()}},
+		Plugins: []discovery.Plugin{{Name: "ts-plugin", Path: pluginPath}},
 	}
+	byCheck := only(t, Check([]discovery.ConfigDir{dir}), "plugin-entry-missing")
+	if byCheck["plugin-entry-missing"].Severity != Error {
+		t.Fatal("a TS plugin without index.ts should be an error")
+	}
+
+	// A healthy TS plugin yields nothing (and no Claude-shaped findings).
+	write(t, pluginPath, "index.ts", "export const plugin = {}\n")
 	if findings := Check([]discovery.ConfigDir{dir}); findings != nil {
-		t.Fatalf("opencode plugin produced findings: %+v", findings)
+		t.Fatalf("healthy opencode plugin produced findings: %+v", findings)
 	}
 }
 

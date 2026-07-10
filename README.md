@@ -247,16 +247,19 @@ The command flows through three layers:
 3. The domain packages do the real work, shared by the CLI and the TUI:
    - **`scaffolding`** (`internal/scaffolding`): the typed model, harness
      detection, the embedded layout config, and the create/remove engine.
+   - **`harness`** (`internal/harness`): one adapter per harness (marker dir,
+     artifact containers, registry reader, manifest validators, operation
+     executor), so supporting a new harness is implementing one interface.
    - **`discovery`** (`internal/discovery`): the gitignore-aware scan for
-     config dirs, artifact metadata parsing, the Claude registry reader, the
-     cross-path grouping, and the content hashes behind drift detection.
-   - **`doctor`** (`internal/doctor`): the health checks behind `adev doctor`
-     and the TUI's doctor view.
+     config dirs, driven by the adapters, plus SKILL.md frontmatter parsing,
+     the cross-path grouping, and the content hashes behind drift detection.
+   - **`doctor`** (`internal/doctor`): the shared skill checks plus each
+     adapter's validators, behind `adev doctor` and the TUI's doctor view.
    - **`clean`** (`internal/clean`): the removal candidates built on discovery
      and doctor, behind `adev clean` and the TUI's clean list.
    - **`manage`** (`internal/manage`): the mutations on discovered resources;
-     guarded filesystem deletes, and plugin/marketplace operations delegated
-     to the `claude` CLI.
+     guarded filesystem deletes, and plugin/marketplace operations forwarded
+     to the Claude adapter's `claude` CLI executor.
    - **`tui`** (`internal/tui`): the Bubble Tea dashboard on top of discovery
      and manage.
 
@@ -381,10 +384,11 @@ To change or extend a layout, edit `structures.json` and rebuild.
 │   │   └── setup.go                 # `adev setup`: install bundled skills
 │   ├── scaffolding/                 # Typed model + layout engine
 │   │   └── structures.json          # Embedded folder layouts
+│   ├── harness/                     # One adapter per harness (claude/codex/opencode)
 │   ├── discovery/                   # Gitignore-aware scan + grouping + hashes
 │   ├── doctor/                      # Health checks behind `adev doctor`
 │   ├── clean/                       # Removal candidates behind `adev clean`
-│   ├── manage/                      # Deletes + claude CLI operations
+│   ├── manage/                      # Deletes + forwarding to the Claude adapter
 │   ├── tui/                         # The Bubble Tea dashboard
 │   └── brand/                       # The shared color palette
 ├── skills/                          # Bundled skills (embedded via go:embed)

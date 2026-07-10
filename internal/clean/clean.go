@@ -6,16 +6,19 @@
 //
 // The package decides nothing on its own state: Collect derives every
 // candidate from what discovery already found and what the doctor already
-// flagged, so clean sees exactly what the rest of adev sees. Apply executes
-// one candidate: registry-owned entries go through the claude CLI
-// (manage.Exec), plain orphaned folders are deleted from disk.
+// flagged, so clean sees exactly what the rest of adev sees. Registries are
+// read through each harness's adapter (internal/harness); harnesses without
+// one return the zero Registry and contribute no registry candidates. Apply
+// executes one candidate: registry-owned entries go through the claude CLI
+// (the Claude adapter's executor, via manage's helpers), plain orphaned
+// folders are deleted from disk.
 package clean
 
 import (
 	"agentic-developer/internal/discovery"
 	"agentic-developer/internal/doctor"
+	"agentic-developer/internal/harness"
 	"agentic-developer/internal/manage"
-	"agentic-developer/internal/scaffolding"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -115,12 +118,16 @@ func Collect(dirs []discovery.ConfigDir, findings []doctor.Finding) []Candidate 
 	var candidates []Candidate
 
 	for _, dir := range dirs {
-		// The plugin cache and registry are Claude concepts; the other
-		// harnesses have neither.
-		if dir.Harness != scaffolding.Claude {
+		// The registry comes from the dir's harness adapter. Harnesses
+		// without one (codex, opencode) return the zero Registry, so they
+		// contribute no cache or marketplace candidates; the cache layout
+		// walked below (plugins/cache/...) is Claude's, and only Claude has
+		// a registry today.
+		ad, ok := harness.ForID(dir.Harness)
+		if !ok {
 			continue
 		}
-		reg := discovery.ReadClaudeRegistry(dir.Path)
+		reg := ad.Registry(dir.Path)
 		candidates = append(candidates, cacheCandidates(dir.Path, reg)...)
 		candidates = append(candidates, deadMarketplaces(reg)...)
 	}
@@ -159,7 +166,7 @@ func Apply(c Candidate) error {
 // registered plugin's folder, any version dir no install record points at
 // is a stale leftover. Without a readable registry there is nothing to
 // compare against, so the cache is left alone.
-func cacheCandidates(configDir string, reg discovery.ClaudeRegistry) []Candidate {
+func cacheCandidates(configDir string, reg harness.Registry) []Candidate {
 	if !reg.HasInstalled {
 		return nil
 	}
@@ -206,7 +213,7 @@ func cacheCandidates(configDir string, reg discovery.ClaudeRegistry) []Candidate
 // folder that no install record points at: leftovers of previous versions.
 // When no record carries an install path there is nothing safe to compare
 // against, so everything is kept.
-func staleVersions(pluginDir, key string, installs []discovery.PluginInstall) []Candidate {
+func staleVersions(pluginDir, key string, installs []harness.PluginInstall) []Candidate {
 	keep := make(map[string]bool, len(installs))
 	for _, install := range installs {
 		if install.InstallPath != "" {
@@ -246,7 +253,7 @@ func staleVersions(pluginDir, key string, installs []discovery.PluginInstall) []
 // path no longer exists: they read straight from that path, so every plugin
 // installed from them rots. Removal goes through the claude CLI, since the
 // entry lives in its registry.
-func deadMarketplaces(reg discovery.ClaudeRegistry) []Candidate {
+func deadMarketplaces(reg harness.Registry) []Candidate {
 	names := make([]string, 0, len(reg.KnownMarketplaces))
 	for name := range reg.KnownMarketplaces {
 		names = append(names, name)

@@ -1,16 +1,17 @@
 package discovery
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// This file parses the artifacts' own metadata files, so every component can
-// show a real preview: SKILL.md frontmatter for skills, plugin.json for
-// plugins, marketplace.json for marketplaces. Parsing is best-effort: a
-// missing or malformed file just yields empty metadata, never an error.
+// This file parses SKILL.md frontmatter, the one artifact metadata format
+// shared by every harness (the open skills standard), so every component can
+// show a real preview. Harness-specific manifests (plugin.json,
+// package.json, marketplace.json) are the adapters' business (see
+// internal/harness). Parsing is best-effort: a missing or malformed file
+// just yields empty metadata, never an error.
 
 // ParseFrontmatter reads the YAML-ish frontmatter block of a markdown file
 // (the lines between the two --- fences) into a key/value map, or nil when
@@ -50,54 +51,4 @@ func ParseFrontmatter(file string) map[string]string {
 // skillDescription reads the description of the skill living in dir.
 func skillDescription(dir string) string {
 	return ParseFrontmatter(filepath.Join(dir, "SKILL.md"))["description"]
-}
-
-// pluginManifest is the relevant subset of a plugin's
-// .claude-plugin/plugin.json.
-type pluginManifest struct {
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Description string `json:"description"`
-}
-
-// readPluginManifest parses the manifest of the plugin living in dir,
-// returning the zero value when there is none.
-func readPluginManifest(dir string) pluginManifest {
-	var man pluginManifest
-	raw, err := os.ReadFile(filepath.Join(dir, ".claude-plugin", "plugin.json"))
-	if err != nil {
-		return man
-	}
-	_ = json.Unmarshal(raw, &man)
-	return man
-}
-
-// marketplaceManifest is the relevant subset of a marketplace's
-// .claude-plugin/marketplace.json: the catalog of plugins it offers.
-type marketplaceManifest struct {
-	Name    string `json:"name"`
-	Plugins []struct {
-		Name string `json:"name"`
-	} `json:"plugins"`
-}
-
-// marketplacePluginNames parses the catalog of the marketplace living in dir
-// and returns the plugin names it offers.
-func marketplacePluginNames(dir string) []string {
-	raw, err := os.ReadFile(filepath.Join(dir, ".claude-plugin", "marketplace.json"))
-	if err != nil {
-		return nil
-	}
-	var man marketplaceManifest
-	if err := json.Unmarshal(raw, &man); err != nil {
-		return nil
-	}
-
-	var names []string
-	for _, p := range man.Plugins {
-		if p.Name != "" {
-			names = append(names, p.Name)
-		}
-	}
-	return names
 }

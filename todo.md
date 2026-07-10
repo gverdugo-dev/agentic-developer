@@ -187,7 +187,7 @@ does not scale.
 
 **Deliverable**: PR.
 
-### T5: harness adapters  [status: open, coordinate with T2/T3]
+### T5: harness adapters  [status: in-pr, coordinate with T2/T3]
 
 **Why**: Claude support is deep (registry, enabled state, cache) while
 codex/opencode are folder listings; the asymmetry is hardcoded. An adapter
