@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"agentic-developer/internal/clean"
 	"agentic-developer/internal/discovery"
 	"agentic-developer/internal/doctor"
 	"agentic-developer/internal/scaffolding"
@@ -146,6 +147,34 @@ func findingPreview(f doctor.Finding) string {
 		b.WriteString("\n" + itemSelectedStyle.Render("fix: ") + f.FixHint + "\n")
 	}
 	return b.String()
+}
+
+// candidatePreview details one clean candidate: what kind of dead weight it
+// is, where it lives, why it is removable, what removing it reclaims, and
+// how the removal runs.
+func candidatePreview(c clean.Candidate) string {
+	var b strings.Builder
+	b.WriteString(itemWarnStyle.Render(c.Kind) + "\n")
+	b.WriteString(itemMutedStyle.Render("("+abbreviateHome(c.Path)+")") + "\n\n")
+	b.WriteString(c.Reason + "\n\n")
+	if c.Size > 0 {
+		b.WriteString(itemMutedStyle.Render("reclaims ") + clean.HumanSize(c.Size) + "\n")
+	}
+	b.WriteString(itemMutedStyle.Render("removal  ") + removalLabel(c) + "\n\n")
+	b.WriteString(itemSelectedStyle.Render("press d to remove it"))
+	return b.String()
+}
+
+// removalLabel phrases how a candidate gets removed.
+func removalLabel(c clean.Candidate) string {
+	switch c.Action {
+	case clean.ActionUninstall:
+		return "claude plugin uninstall " + c.Arg
+	case clean.ActionRemoveMarketplace:
+		return "claude plugin marketplace remove " + c.Arg
+	default:
+		return "delete the folder"
+	}
 }
 
 // severityTag renders the colored severity label of a finding.

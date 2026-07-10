@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"agentic-developer/internal/clean"
 	"agentic-developer/internal/discovery"
 	"agentic-developer/internal/doctor"
 	"agentic-developer/internal/manage"
@@ -623,6 +624,184 @@ func TestAddMarketplaceInputFlow(t *testing.T) {
 	m, _ = m.Update(key("a"))
 	if m.mode != modeNormal || m.status == "" {
 		t.Fatalf("a outside marketplaces: mode=%v status=%q", m.mode, m.status)
+	}
+}
+
+// cleanFixture builds a dashboard sitting on the doctor view with one
+// finding and two clean candidates: a disk orphan (under base/.claude so the
+// guarded delete accepts it) and a registry uninstall.
+func cleanFixture(t *testing.T, base string) dashModel {
+	t.Helper()
+	orphan := base + "/.claude/plugins/cache/mkt/orphan"
+	if err := os.MkdirAll(orphan, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newDash("test", base)
+	m.setSize(100, 30)
+	m, _ = m.Update(scanResultMsg{root: base,
+		dirs: []discovery.ConfigDir{{Path: base + "/.claude"}},
+		findings: []doctor.Finding{
+			{Severity: doctor.Warning, Check: "cache-orphan", Path: orphan,
+				Message: `cached plugin "orphan@mkt" has no registry entry`},
+		},
+		candidates: []clean.Candidate{
+			{Kind: clean.KindCacheOrphan, Path: orphan, Size: 2048,
+				Reason: `cached plugin "orphan@mkt" has no registry entry`, Action: clean.ActionRemoveDir},
+			{Kind: clean.KindBrokenArtifact, Path: base + "/.claude/plugins/cache/mkt/broken/1.0.0",
+				Reason: "broken plugin", Action: clean.ActionUninstall, Arg: "broken@mkt"},
+		},
+	})
+	m, _ = m.Update(key("5"))
+	if m.view != viewDoctorTab {
+		t.Fatalf("view = %v, want viewDoctorTab", m.view)
+	}
+	return m
+}
+
+// TestCleanListFromDoctorView drives "c": the doctor view flips to the
+// candidate list, rows carry the reclaimable size, the preview explains the
+// removal, and esc returns to the findings.
+func TestCleanListFromDoctorView(t *testing.T) {
+	m := cleanFixture(t, t.TempDir())
+
+	// The findings list is what "5" shows; "c" flips to the candidates.
+	if m.listLen() != 1 {
+		t.Fatalf("findings listLen = %d, want 1", m.listLen())
+	}
+	m, _ = m.Update(key("c"))
+	if !m.cleanDrilled || m.listLen() != 2 {
+		t.Fatalf("after c: cleanDrilled=%v listLen=%d, want drilled with 2", m.cleanDrilled, m.listLen())
+	}
+	if !strings.Contains(m.viewList(80), "2.0 KB") {
+		t.Fatalf("candidate row misses the size: %q", m.viewList(80))
+	}
+	if preview := strings.Join(m.detailLines(60), "\n"); !strings.Contains(preview, "press d to remove it") {
+		t.Fatalf("candidate preview misses the removal hint: %q", preview)
+	}
+
+	// Enter opens the candidate page.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.page == nil || m.page.title != "candidate: "+clean.KindCacheOrphan {
+		t.Fatalf("page = %+v, want the candidate page", m.page)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	// The registry candidate previews its claude CLI removal.
+	m, _ = m.Update(key("j"))
+	if preview := strings.Join(m.detailLines(60), "\n"); !strings.Contains(preview, "plugin uninstall") {
+		t.Fatalf("uninstall preview misses the claude command: %q", preview)
+	}
+
+	// esc returns to the findings list.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.cleanDrilled || m.listLen() != 1 {
+		t.Fatalf("after esc: cleanDrilled=%v listLen=%d, want the findings back", m.cleanDrilled, m.listLen())
+	}
+
+	// "c" outside the doctor view only leaves a hint.
+	m, _ = m.Update(key("1"))
+	m, _ = m.Update(key("c"))
+	if m.cleanDrilled || m.status == "" {
+		t.Fatalf("c outside doctor: cleanDrilled=%v status=%q", m.cleanDrilled, m.status)
+	}
+}
+
+// TestCleanRemoveConfirmFlow drives "d" on a disk candidate end to end:
+// confirm prompt, n cancels, y removes the folder and schedules the rescan.
+func TestCleanRemoveConfirmFlow(t *testing.T) {
+	base := t.TempDir()
+	m := cleanFixture(t, base)
+	orphan := base + "/.claude/plugins/cache/mkt/orphan"
+
+	// "d" on the findings list is still refused, pointing at "c".
+	m, _ = m.Update(key("d"))
+	if m.pending != nil || !strings.Contains(m.status, "c") {
+		t.Fatalf("d on findings: pending=%+v status=%q", m.pending, m.status)
+	}
+
+	m, _ = m.Update(key("c"))
+	m, _ = m.Update(key("d"))
+	if m.mode != modeConfirm || m.pending == nil || m.pending.kind != actionDelete {
+		t.Fatalf("after d: mode=%v pending=%+v", m.mode, m.pending)
+	}
+
+	// "n" cancels without touching the folder.
+	m, _ = m.Update(key("n"))
+	if m.mode != modeNormal || m.pending != nil {
+		t.Fatal("n did not cancel")
+	}
+	if _, err := os.Stat(orphan); err != nil {
+		t.Fatal("cancel still removed the orphan")
+	}
+
+	// d then y removes it and schedules the refresh scan.
+	m, _ = m.Update(key("d"))
+	m, cmd := m.Update(key("y"))
+	if !m.busy || cmd == nil {
+		t.Fatalf("y did not start the removal: busy=%v", m.busy)
+	}
+	result := findActionResult(t, cmd())
+	if result.err != nil {
+		t.Fatalf("removal failed: %v", result.err)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Fatal("the orphan still exists after confirm")
+	}
+	m, _ = m.Update(result)
+	if m.busy || m.pendingRoot != base {
+		t.Fatalf("after result: busy=%v pendingRoot=%q", m.busy, m.pendingRoot)
+	}
+
+	// The rescan keeps the clean list open so it can be emptied one by one.
+	if !m.cleanDrilled {
+		t.Fatal("the rescan left the clean list")
+	}
+}
+
+// TestCleanRegistryCandidateUsesClaudeCLI verifies confirming a registry
+// candidate shells out to the claude CLI instead of touching the disk.
+func TestCleanRegistryCandidateUsesClaudeCLI(t *testing.T) {
+	var got [][]string
+	orig := manage.Exec
+	manage.Exec = func(args ...string) (string, error) {
+		got = append(got, args)
+		return "", nil
+	}
+	defer func() { manage.Exec = orig }()
+
+	m := cleanFixture(t, t.TempDir())
+	m, _ = m.Update(key("c"))
+	m, _ = m.Update(key("j")) // the uninstall candidate
+	m, _ = m.Update(key("d"))
+	if m.mode != modeConfirm || m.pending == nil || m.pending.kind != actionUninstall {
+		t.Fatalf("after d: mode=%v pending=%+v", m.mode, m.pending)
+	}
+
+	m, cmd := m.Update(key("y"))
+	if !m.busy || cmd == nil {
+		t.Fatal("y did not start the uninstall")
+	}
+	result := findActionResult(t, cmd())
+	if result.err != nil {
+		t.Fatalf("uninstall failed: %v", result.err)
+	}
+	if len(got) != 1 || strings.Join(got[0], " ") != "plugin uninstall broken@mkt" {
+		t.Fatalf("claude called with %v, want plugin uninstall broken@mkt", got)
+	}
+}
+
+// TestCleanEmptyList verifies the drilled clean view shows its healthy state
+// when there is nothing to remove.
+func TestCleanEmptyList(t *testing.T) {
+	m := newDash("test", "/root")
+	m.setSize(100, 30)
+	m, _ = m.Update(scanResultMsg{root: "/root", dirs: []discovery.ConfigDir{{Path: "/root/.claude"}}})
+
+	m, _ = m.Update(key("5"))
+	m, _ = m.Update(key("c"))
+	if m.listLen() != 0 || !strings.Contains(m.viewList(80), "nothing to clean") {
+		t.Fatalf("empty clean list = %q, want 'nothing to clean'", m.viewList(80))
 	}
 }
 
