@@ -37,6 +37,7 @@ type skillReport struct {
 	Name        string `json:"name"`
 	Path        string `json:"path,omitempty"`
 	Description string `json:"description,omitempty"`
+	Hash        string `json:"hash,omitempty"`
 }
 
 // pluginReport is the JSON shape of one plugin. Marketplace, version and
@@ -48,6 +49,7 @@ type pluginReport struct {
 	Enabled     bool   `json:"enabled"`
 	Path        string `json:"path,omitempty"`
 	Description string `json:"description,omitempty"`
+	Hash        string `json:"hash,omitempty"`
 }
 
 // marketplaceReport is the JSON shape of one marketplace.
@@ -56,6 +58,7 @@ type marketplaceReport struct {
 	Source  string   `json:"source,omitempty"`
 	Path    string   `json:"path,omitempty"`
 	Plugins []string `json:"plugins,omitempty"`
+	Hash    string   `json:"hash,omitempty"`
 }
 
 // reportSkills, reportPlugins and reportMarketplaces map the discovery types
@@ -63,7 +66,7 @@ type marketplaceReport struct {
 func reportSkills(skills []discovery.Skill) []skillReport {
 	out := make([]skillReport, 0, len(skills))
 	for _, s := range skills {
-		out = append(out, skillReport{Name: s.Name, Path: s.Path, Description: s.Description})
+		out = append(out, skillReport{Name: s.Name, Path: s.Path, Description: s.Description, Hash: s.Hash})
 	}
 	return out
 }
@@ -78,6 +81,7 @@ func reportPlugins(plugins []discovery.Plugin) []pluginReport {
 			Enabled:     p.Enabled,
 			Path:        p.Path,
 			Description: p.Description,
+			Hash:        p.Hash,
 		})
 	}
 	return out
@@ -86,7 +90,7 @@ func reportPlugins(plugins []discovery.Plugin) []pluginReport {
 func reportMarketplaces(marketplaces []discovery.Marketplace) []marketplaceReport {
 	out := make([]marketplaceReport, 0, len(marketplaces))
 	for _, mkt := range marketplaces {
-		out = append(out, marketplaceReport{Name: mkt.Name, Source: mkt.Source, Path: mkt.Path, Plugins: mkt.PluginNames})
+		out = append(out, marketplaceReport{Name: mkt.Name, Source: mkt.Source, Path: mkt.Path, Plugins: mkt.PluginNames, Hash: mkt.Hash})
 	}
 	return out
 }

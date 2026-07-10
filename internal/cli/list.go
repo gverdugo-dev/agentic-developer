@@ -22,10 +22,12 @@ func (listCmd) Synopsis() string {
 }
 
 // Run parses the category positional, the optional root (default: the
-// working directory) and the --json flag, then prints the grouped listing.
+// working directory) and the --json/--duplicates flags, then prints the
+// grouped listing.
 func (c listCmd) Run(args []string) error {
 	fs := flag.NewFlagSet("adev list", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the results as JSON on stdout")
+	duplicates := fs.Bool("duplicates", false, "only show groups living in more than one location")
 
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "Usage: adev list <skills|plugins|marketplaces> [path] [flags]")
@@ -61,15 +63,39 @@ func (c listCmd) Run(args []string) error {
 
 	switch category {
 	case "skills":
-		return printSkillGroups(discovery.GroupSkills(dirs), *asJSON)
+		groups := discovery.GroupSkills(dirs)
+		if *duplicates {
+			groups = keepDuplicates(groups, func(g discovery.SkillGroup) int { return len(g.Locations) })
+		}
+		return printSkillGroups(groups, *asJSON)
 	case "plugins":
-		return printPluginGroups(discovery.GroupPlugins(dirs), *asJSON)
+		groups := discovery.GroupPlugins(dirs)
+		if *duplicates {
+			groups = keepDuplicates(groups, func(g discovery.PluginGroup) int { return len(g.Locations) })
+		}
+		return printPluginGroups(groups, *asJSON)
 	case "marketplaces":
-		return printMarketplaceGroups(discovery.GroupMarketplaces(dirs), *asJSON)
+		groups := discovery.GroupMarketplaces(dirs)
+		if *duplicates {
+			groups = keepDuplicates(groups, func(g discovery.MarketplaceGroup) int { return len(g.Locations) })
+		}
+		return printMarketplaceGroups(groups, *asJSON)
 	default:
 		fs.Usage()
 		return fmt.Errorf("unknown category %q", category)
 	}
+}
+
+// keepDuplicates filters groups down to the ones living in more than one
+// location, which is what --duplicates asks for.
+func keepDuplicates[G any](groups []G, locations func(G) int) []G {
+	kept := make([]G, 0, len(groups))
+	for _, g := range groups {
+		if locations(g) > 1 {
+			kept = append(kept, g)
+		}
+	}
+	return kept
 }
 
 // jsonOut encodes v indented to stdout.
@@ -79,9 +105,30 @@ func jsonOut(v any) error {
 	return enc.Encode(v)
 }
 
-// locationsSuffix formats the shared "in N location(s)" tail.
-func locationsSuffix(n int) string {
-	return muted(fmt.Sprintf("in %d location(s)", n))
+// locationsSuffix formats the shared "in N location(s)" tail, plus the
+// content marker of a duplicated group: identical copies or drifted ones.
+func locationsSuffix(n int, drift discovery.DriftState) string {
+	suffix := muted(fmt.Sprintf("in %d location(s)", n))
+	switch drift {
+	case discovery.DriftIdentical:
+		suffix += " " + muted("= identical")
+	case discovery.DriftDrifted:
+		suffix += " " + danger("≠ drifted")
+	}
+	return suffix
+}
+
+// printLocationLine prints one indented location with its hash state: the
+// short content hash and, when the copy drifted, its differing-file count.
+func printLocationLine(configDir, hash string, diffCount int) {
+	line := "    " + muted(configDir)
+	if hash != "" {
+		line += " " + muted(discovery.ShortHash(hash))
+	}
+	if diffCount > 0 {
+		line += " " + danger(fmt.Sprintf("≠ %d file(s) differ", diffCount))
+	}
+	printInfo("%s", line)
 }
 
 // printSkillGroups prints every skill and where it lives.
@@ -90,27 +137,30 @@ func printSkillGroups(groups []discovery.SkillGroup, asJSON bool) error {
 		type location struct {
 			ConfigDir string `json:"configDir"`
 			Path      string `json:"path"`
+			Hash      string `json:"hash,omitempty"`
+			DiffCount int    `json:"diffCount,omitempty"`
 		}
 		type report struct {
-			Name        string     `json:"name"`
-			Description string     `json:"description,omitempty"`
-			Locations   []location `json:"locations"`
+			Name        string               `json:"name"`
+			Description string               `json:"description,omitempty"`
+			Drift       discovery.DriftState `json:"drift"`
+			Locations   []location           `json:"locations"`
 		}
 		out := make([]report, 0, len(groups))
 		for _, g := range groups {
 			locs := make([]location, 0, len(g.Locations))
 			for _, l := range g.Locations {
-				locs = append(locs, location{ConfigDir: l.ConfigDir, Path: l.Item.Path})
+				locs = append(locs, location{ConfigDir: l.ConfigDir, Path: l.Item.Path, Hash: l.Hash, DiffCount: l.DiffCount})
 			}
-			out = append(out, report{Name: g.Name, Description: g.Description, Locations: locs})
+			out = append(out, report{Name: g.Name, Description: g.Description, Drift: g.Drift, Locations: locs})
 		}
 		return jsonOut(out)
 	}
 
 	for _, g := range groups {
-		printSuccess("%s %s", accent(g.Name), locationsSuffix(len(g.Locations)))
+		printSuccess("%s %s", accent(g.Name), locationsSuffix(len(g.Locations), g.Drift))
 		for _, l := range g.Locations {
-			printInfo("    %s", muted(l.ConfigDir))
+			printLocationLine(l.ConfigDir, l.Hash, l.DiffCount)
 		}
 	}
 	printInfo("%s", muted(fmt.Sprintf("%d skill(s)", len(groups))))
@@ -123,23 +173,27 @@ func printPluginGroups(groups []discovery.PluginGroup, asJSON bool) error {
 		type location struct {
 			ConfigDir string `json:"configDir"`
 			Enabled   bool   `json:"enabled"`
+			Hash      string `json:"hash,omitempty"`
+			DiffCount int    `json:"diffCount,omitempty"`
 		}
 		type report struct {
-			Name        string     `json:"name"`
-			Marketplace string     `json:"marketplace,omitempty"`
-			Version     string     `json:"version,omitempty"`
-			Description string     `json:"description,omitempty"`
-			Locations   []location `json:"locations"`
+			Name        string               `json:"name"`
+			Marketplace string               `json:"marketplace,omitempty"`
+			Version     string               `json:"version,omitempty"`
+			Description string               `json:"description,omitempty"`
+			Drift       discovery.DriftState `json:"drift"`
+			Locations   []location           `json:"locations"`
 		}
 		out := make([]report, 0, len(groups))
 		for _, g := range groups {
 			locs := make([]location, 0, len(g.Locations))
 			for _, l := range g.Locations {
-				locs = append(locs, location{ConfigDir: l.ConfigDir, Enabled: l.Item.Enabled})
+				locs = append(locs, location{ConfigDir: l.ConfigDir, Enabled: l.Item.Enabled, Hash: l.Hash, DiffCount: l.DiffCount})
 			}
 			out = append(out, report{
 				Name: g.Name, Marketplace: g.Marketplace,
-				Version: g.Version, Description: g.Description, Locations: locs,
+				Version: g.Version, Description: g.Description,
+				Drift: g.Drift, Locations: locs,
 			})
 		}
 		return jsonOut(out)
@@ -150,9 +204,9 @@ func printPluginGroups(groups []discovery.PluginGroup, asJSON bool) error {
 		if g.Version != "" {
 			label += " " + muted(g.Version)
 		}
-		printSuccess("%s %s", label, locationsSuffix(len(g.Locations)))
+		printSuccess("%s %s", label, locationsSuffix(len(g.Locations), g.Drift))
 		for _, l := range g.Locations {
-			printInfo("    %s", muted(l.ConfigDir))
+			printLocationLine(l.ConfigDir, l.Hash, l.DiffCount)
 		}
 	}
 	printInfo("%s", muted(fmt.Sprintf("%d plugin(s)", len(groups))))
@@ -163,19 +217,25 @@ func printPluginGroups(groups []discovery.PluginGroup, asJSON bool) error {
 // registered.
 func printMarketplaceGroups(groups []discovery.MarketplaceGroup, asJSON bool) error {
 	if asJSON {
+		type location struct {
+			ConfigDir string `json:"configDir"`
+			Hash      string `json:"hash,omitempty"`
+			DiffCount int    `json:"diffCount,omitempty"`
+		}
 		type report struct {
-			Name      string   `json:"name"`
-			Source    string   `json:"source,omitempty"`
-			Plugins   []string `json:"plugins,omitempty"`
-			Locations []string `json:"locations"`
+			Name      string               `json:"name"`
+			Source    string               `json:"source,omitempty"`
+			Plugins   []string             `json:"plugins,omitempty"`
+			Drift     discovery.DriftState `json:"drift"`
+			Locations []location           `json:"locations"`
 		}
 		out := make([]report, 0, len(groups))
 		for _, g := range groups {
-			locs := make([]string, 0, len(g.Locations))
+			locs := make([]location, 0, len(g.Locations))
 			for _, l := range g.Locations {
-				locs = append(locs, l.ConfigDir)
+				locs = append(locs, location{ConfigDir: l.ConfigDir, Hash: l.Hash, DiffCount: l.DiffCount})
 			}
-			out = append(out, report{Name: g.Name, Source: g.Source, Plugins: g.PluginNames, Locations: locs})
+			out = append(out, report{Name: g.Name, Source: g.Source, Plugins: g.PluginNames, Drift: g.Drift, Locations: locs})
 		}
 		return jsonOut(out)
 	}
@@ -185,9 +245,9 @@ func printMarketplaceGroups(groups []discovery.MarketplaceGroup, asJSON bool) er
 		if g.Source != "" {
 			label += " " + muted("("+g.Source+")")
 		}
-		printSuccess("%s %s", label, locationsSuffix(len(g.Locations)))
+		printSuccess("%s %s", label, locationsSuffix(len(g.Locations), g.Drift))
 		for _, l := range g.Locations {
-			printInfo("    %s", muted(l.ConfigDir))
+			printLocationLine(l.ConfigDir, l.Hash, l.DiffCount)
 		}
 	}
 	printInfo("%s", muted(fmt.Sprintf("%d marketplace(s)", len(groups))))
