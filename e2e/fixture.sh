@@ -9,6 +9,10 @@
 #                         view (2 + 31 = 33 groups) overflows a 35-row
 #                         terminal (28 visible rows) and scrolling is real
 #   beta-root/.claude     the rescan target of the root-input flow: 1 skill
+#   registry/             the fake skills.sh tree the stub server serves: a
+#                         canned search response plus the matching source
+#                         repo tarball, laid out at the paths the registry
+#                         client requests
 #
 # The tests assert on these exact counts; change them together.
 set -eu
@@ -60,3 +64,33 @@ done
 
 BETA_CFG="$WORK/beta-root/.claude"
 skill "$BETA_CFG/skills" beta-skill
+
+# The fake skills.sh: one search hit (demo-skill from vercel-labs/demo) and
+# the repo tarball behind it, shaped like a codeload archive (everything
+# under a "<repo>-HEAD/" prefix). The static server ignores query strings,
+# so the search response lives at the literal path /api/search.
+REG="$WORK/registry"
+mkdir -p "$REG/api"
+cat > "$REG/api/search" <<EOF
+{
+  "query": "demo",
+  "searchType": "fuzzy",
+  "skills": [
+    {"id": "vercel-labs/demo/demo-skill", "skillId": "demo-skill", "name": "demo-skill", "installs": 4242, "source": "vercel-labs/demo"}
+  ]
+}
+EOF
+
+STAGE="$WORK/tarball-stage"
+mkdir -p "$STAGE/demo-HEAD/skills/demo-skill"
+cat > "$STAGE/demo-HEAD/skills/demo-skill/SKILL.md" <<EOF
+---
+name: demo-skill
+description: "Registry demo skill served by the e2e stub"
+---
+
+# demo-skill
+EOF
+mkdir -p "$REG/vercel-labs/demo/tar.gz"
+tar -czf "$REG/vercel-labs/demo/tar.gz/HEAD" -C "$STAGE" demo-HEAD
+rm -rf "$STAGE"

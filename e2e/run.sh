@@ -19,7 +19,9 @@ if ! command -v expect >/dev/null 2>&1; then
 fi
 
 go build -o bin/adev ./cmd/adev
+go build -o bin/adev-e2e-stub ./e2e/stub
 ADEV_BIN="$(pwd)/bin/adev"
+STUB_BIN="$(pwd)/bin/adev-e2e-stub"
 export ADEV_BIN
 
 filter="${1:-}"
@@ -41,6 +43,24 @@ for test in e2e/*.exp; do
     export E2E_ROOT="$WORK/alpha-root"
     export E2E_BETA="$WORK/beta-root"
 
+    # The fake skills.sh serves the fixture registry tree on a loopback
+    # port; the registry env overrides point adev at it, so no test can
+    # ever reach the real network.
+    "$STUB_BIN" -dir "$WORK/registry" -portfile "$WORK/stub.port" &
+    stub_pid=$!
+    tries=0
+    while [ ! -s "$WORK/stub.port" ]; do
+        tries=$((tries + 1))
+        if [ "$tries" -gt 50 ]; then
+            echo "e2e: the registry stub never reported its port" >&2
+            exit 1
+        fi
+        sleep 0.1
+    done
+    ADEV_REGISTRY_URL="http://127.0.0.1:$(cat "$WORK/stub.port")"
+    export ADEV_REGISTRY_URL
+    export ADEV_REGISTRY_TARBALL_URL="$ADEV_REGISTRY_URL"
+
     echo "=== $name"
     if expect -f "$test"; then
         echo "--- PASS: $name"
@@ -50,6 +70,9 @@ for test in e2e/*.exp; do
         echo "--- FAIL: $name (fixtures kept at $WORK)"
         fail=$((fail + 1))
     fi
+
+    kill "$stub_pid" 2>/dev/null || true
+    wait "$stub_pid" 2>/dev/null || true
 done
 
 if [ "$total" -eq 0 ]; then
