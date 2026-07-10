@@ -1,17 +1,26 @@
 # agentic-dev (`adev`)
 
-A small, agentic-first CLI, invoked as **`adev`**, for scaffolding and
-removing AI coding-agent artifacts (**skills**, **plugins**, and
+A small, agentic-first CLI, invoked as **`adev`**, for scaffolding, discovering
+and managing AI coding-agent artifacts (**skills**, **plugins**, and
 **plugin-marketplaces**) with the correct folder layout for the harness you use
 (Claude Code, Codex, opencode).
 
 It ships with opinionated, built-in layouts so that creating a well-formed
 artifact is a single command, even for non-technical users. It also bundles its
 own skills, so after `adev setup` your agent knows how to drive the tool and how
-to build well-formed artifacts.
+to build well-formed artifacts. And run bare, `adev` opens a lazygit-style TUI
+that shows every artifact on your machine and lets you act on it.
 
 ## Features
 
+- **Interactive TUI**: `adev` with no arguments opens a terminal dashboard that
+  scans for harness config dirs and browses everything inside them.
+- **Discovery**: `adev scan` and `adev list` find every config dir under a
+  folder (gitignore-aware) and group the artifacts across them, with `--json`
+  output for scripts.
+- **Management**: `adev rm`, `adev plugin` and `adev marketplace` delete
+  artifacts, toggle or uninstall installed plugins, and remove marketplaces;
+  the same operations the TUI offers.
 - **Create and delete** skills, plugins and plugin-marketplaces.
 - **Bundled skills**: `adev setup` installs adev's own skills into your harness,
   teaching the agent how to use the tool and an opinionated way to build
@@ -62,8 +71,14 @@ place. Check your version with `adev version`.
 ## Usage
 
 ```
+adev                                                  # open the TUI (terminal only)
 adev new <artifact> <name> [--scope s] [--harness h] [--force]
 adev delete <artifact> <name> [--scope s] [--harness h]
+adev scan [path] [--json]
+adev list <skills|plugins|marketplaces> [path] [--json]
+adev rm <absolute-path> [--yes]
+adev plugin <enable|disable|uninstall> <name@marketplace>
+adev marketplace remove <name>
 adev setup [harness]
 adev update
 adev version
@@ -121,6 +136,74 @@ adev delete skill my-new-skill
 adev new skill my-new-skill --force
 ```
 
+## The TUI
+
+Running `adev` with no arguments on a terminal opens the dashboard (the lazygit
+model: the bare binary is the interactive tool). It scans the directory you
+started it in, always adds your home config dirs (`~/.claude`, `~/.codex`,
+`~/.opencode`), and browses the results in four views:
+
+| View               | Shows                                                        |
+| ------------------ | ------------------------------------------------------------ |
+| `1` paths          | every discovered config dir; enter drills into its artifacts |
+| `2` skills         | every skill across all config dirs, grouped by name          |
+| `3` plugins        | every plugin identity (`name@marketplace`), grouped          |
+| `4` marketplaces   | every registered marketplace, grouped by name                |
+
+The left panel is the browse list, the right panel previews the selection, and
+enter opens a full-screen detail page. Keys:
+
+| Key             | Action                                                         |
+| --------------- | -------------------------------------------------------------- |
+| `1`-`4`         | switch view                                                    |
+| `j`/`k`, arrows | move the selection (or scroll the focused panel / open page)   |
+| `tab`, `h`/`l`  | switch focus between the list and the preview panel            |
+| `enter`         | drill into a config dir, or open the detail page               |
+| `esc`           | close the page / leave the drill                               |
+| `o`             | change the scan root (footer input; absolute path, `~` works)  |
+| `d`             | delete the selection (y/n; config dirs demand the typed name)  |
+| `t`             | enable/disable the selected installed plugin                   |
+| `q`, `ctrl+c`   | quit                                                           |
+
+Group rows (`×N`) that live in more than one place cannot be deleted or toggled
+from the aggregated views; the paths view is where you pick which copy.
+
+## Discovering and managing artifacts
+
+Everything the TUI does is also a plain command, so scripts and CI keep the
+same capability. `scan` and `list` take `--json` for machine-readable output.
+
+```bash
+# Every harness config dir under a folder (default: the current dir)
+adev scan ~/dev --json
+
+# Every skill under a folder, grouped by name with its locations
+adev list skills ~/dev
+
+# Delete an artifact folder, or a whole config dir (typed-name confirm)
+adev rm /abs/path/.claude/skills/old-skill
+
+# Toggle or uninstall an installed plugin (delegated to the claude CLI)
+adev plugin disable personal@gonzaloverdugo
+adev plugin uninstall personal@gonzaloverdugo
+
+# Remove a registered marketplace (delegated to the claude CLI)
+adev marketplace remove gonzaloverdugo
+```
+
+Discovery walks the tree the way git would: an embedded default ignore list
+(dependency folders, caches, build output) applies everywhere, every
+`.gitignore` applies to its own subtree, symlinks are not followed, and config
+dirs are leaves (nothing inside one is scanned twice). Claude config dirs are
+read through Claude Code's own plugin registry when one exists (the same data
+its `/plugins` screen shows, including enabled state and versions); otherwise
+the folder layout is listed.
+
+Deletes are guarded: `adev rm` (and the TUI's `d`) refuse to touch anything
+that is not a harness config dir or inside one. Operations on installed
+plugins and registered marketplaces are delegated to the `claude` CLI, which
+owns that registry and its cache; adev never edits those JSON files by hand.
+
 ## How it works
 
 The command flows through three layers:
@@ -129,10 +212,19 @@ The command flows through three layers:
    non-zero exit code.
 2. **`cli`** (`internal/cli`) is the boundary: every invocation is a `Command`
    that parses its own flags and runs itself; `Run` dispatches to the one named
-   on the command line.
-3. **`scaffolding`** (`internal/scaffolding`) is the domain core: the typed
-   model, harness detection, the embedded layout config, and the create/remove
-   engine.
+   on the command line (or opens the TUI when there is none and a terminal is
+   attached).
+3. The domain packages do the real work, shared by the CLI and the TUI:
+   - **`scaffolding`** (`internal/scaffolding`): the typed model, harness
+     detection, the embedded layout config, and the create/remove engine.
+   - **`discovery`** (`internal/discovery`): the gitignore-aware scan for
+     config dirs, artifact metadata parsing, the Claude registry reader, and
+     the cross-path grouping.
+   - **`manage`** (`internal/manage`): the mutations on discovered resources;
+     guarded filesystem deletes, and plugin/marketplace operations delegated
+     to the `claude` CLI.
+   - **`tui`** (`internal/tui`): the Bubble Tea dashboard on top of discovery
+     and manage.
 
 ### Command structure
 
@@ -243,21 +335,28 @@ To change or extend a layout, edit `structures.json` and rebuild.
 .
 ├── cmd/adev/main.go                 # Entry point: wiring + exit code
 ├── internal/
-│   ├── cli/
-│   │   ├── cli.go                   # Arg parsing, validation, dispatch
+│   ├── cli/                         # One file per command + dispatch
+│   │   ├── cli.go                   # Command interface, registry, Run
+│   │   ├── scaffold_cmd.go          # `new` + `delete`
+│   │   ├── scan.go / list.go        # Discovery commands (--json)
+│   │   ├── rm.go                    # Guarded artifact/config-dir delete
+│   │   ├── plugin.go                # enable / disable / uninstall
+│   │   ├── marketplace.go           # marketplace remove
 │   │   └── setup.go                 # `adev setup`: install bundled skills
-│   └── scaffolding/
-│       ├── types.go                 # Typed model + Parse* validators
-│       ├── scaffold.go              # Config load + Apply/Remove engine
-│       ├── utils.go                 # Detection, placement, lookups
-│       └── structures.json          # Embedded folder layouts
+│   ├── scaffolding/                 # Typed model + layout engine
+│   │   └── structures.json          # Embedded folder layouts
+│   ├── discovery/                   # Gitignore-aware scan + grouping
+│   ├── manage/                      # Deletes + claude CLI operations
+│   ├── tui/                         # The Bubble Tea dashboard
+│   └── brand/                       # The shared color palette
 ├── skills/                          # Bundled skills (embedded via go:embed)
 │   ├── skills.go                    # Embed + install into a harness
 │   ├── adev-cli/
 │   ├── adev-skill-builder/
 │   ├── adev-plugin-builder/
 │   └── adev-plugin-marketplace-builder/
-├── Makefile                         # build / run / install targets
+├── e2e/                             # pty e2e suite for the TUI (expect)
+├── Makefile                         # build / run / install / e2e targets
 └── README.md
 ```
 
@@ -275,10 +374,23 @@ To change or extend a layout, edit `structures.json` and rebuild.
 make build      # build ./bin/adev
 make run        # build, then run
 make install    # go install ./cmd/adev
+go test ./...   # unit tests
+make e2e        # pty e2e suite for the TUI (requires `expect`)
 go vet ./...    # static checks
 gofmt -l .      # formatting check (empty output = clean)
 go doc ./internal/scaffolding   # browse the package docs
 ```
+
+### The e2e suite
+
+The TUI is verified end to end in real pseudo-terminals, driven by `expect`
+(preinstalled on macOS, `apt install expect` on Debian/Ubuntu). `make e2e`
+builds the binary and runs every flow in `e2e/*.exp` against a throwaway
+fixture home, so your real config is never touched. Run a single flow with
+`make e2e E2E=view_nav`; set `E2E_VERBOSE=1` to watch the raw pty stream. A
+failing test keeps its fixture dir and the `ADEV_TUI_LOG` key trace for
+debugging. The harness rules (event-driven awaits, terminal query responder,
+pty sizing) live in `e2e/lib/harness.tcl`.
 
 ## Known limitations
 
