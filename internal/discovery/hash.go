@@ -108,6 +108,15 @@ func countFileDiffs(a, b map[string]string) int {
 	return count
 }
 
+// HashDir returns the stable content hash of an artifact dir, "" when it
+// cannot be hashed. Exported so the skill installer (internal/manage) can
+// verify a copy against its source with the exact hash duplicate detection
+// uses: matching hashes mean the copy is byte-identical.
+func HashDir(dir string) string {
+	hash, _ := hashArtifactDir(dir)
+	return hash
+}
+
 // ShortHash abbreviates a content hash for display: the first eight hex
 // chars are plenty to tell copies apart by eye. Both the TUI and the CLI
 // use it, so it lives here with the hash it abbreviates.
