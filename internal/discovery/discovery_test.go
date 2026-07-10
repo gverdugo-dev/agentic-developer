@@ -172,6 +172,93 @@ func TestGroupSkills(t *testing.T) {
 	}
 }
 
+// TestGroupSkillsDrift verifies duplicate groups classify their locations by
+// content: identical copies, drifted copies (with the differing-file count),
+// and single or unhashable ones.
+func TestGroupSkillsDrift(t *testing.T) {
+	cases := []struct {
+		name      string
+		mutate    func(t *testing.T, second string) // second is the second config dir
+		wantState DriftState
+		wantDiffs int // DiffCount of the second location
+	}{
+		{
+			name:      "identical copies",
+			mutate:    func(*testing.T, string) {},
+			wantState: DriftIdentical,
+		},
+		{
+			name: "edited copy drifts with one differing file",
+			mutate: func(t *testing.T, second string) {
+				writeTree(t, filepath.Join(second, "skills", "x"),
+					map[string]string{"references/notes.md": "edited\n"})
+			},
+			wantState: DriftDrifted,
+			wantDiffs: 1,
+		},
+		{
+			name: "extra file drifts too",
+			mutate: func(t *testing.T, second string) {
+				writeTree(t, filepath.Join(second, "skills", "x"),
+					map[string]string{"assets/extra.txt": "extra\n"})
+			},
+			wantState: DriftDrifted,
+			wantDiffs: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			first := filepath.Join(t.TempDir(), ".claude")
+			second := filepath.Join(t.TempDir(), ".codex")
+			writeTree(t, filepath.Join(first, "skills", "x"), baseTree())
+			writeTree(t, filepath.Join(second, "skills", "x"), baseTree())
+			tc.mutate(t, second)
+
+			groups := GroupSkills([]ConfigDir{
+				{Path: first, Skills: collectSkills(first)},
+				{Path: second, Skills: collectSkills(second)},
+			})
+			if len(groups) != 1 {
+				t.Fatalf("got %d groups, want 1: %+v", len(groups), groups)
+			}
+
+			g := groups[0]
+			if g.Drift != tc.wantState {
+				t.Fatalf("drift = %v, want %v", g.Drift, tc.wantState)
+			}
+			if g.Locations[0].Hash == "" || g.Locations[1].Hash == "" {
+				t.Fatalf("locations miss their hashes: %+v", g.Locations)
+			}
+			if g.Locations[0].DiffCount != 0 {
+				t.Fatalf("reference location DiffCount = %d, want 0", g.Locations[0].DiffCount)
+			}
+			if g.Locations[1].DiffCount != tc.wantDiffs {
+				t.Fatalf("second location DiffCount = %d, want %d", g.Locations[1].DiffCount, tc.wantDiffs)
+			}
+		})
+	}
+}
+
+// TestGroupDriftEdgeStates verifies the single and unhashable classifications.
+func TestGroupDriftEdgeStates(t *testing.T) {
+	single := GroupSkills([]ConfigDir{
+		{Path: "/a/.claude", Skills: []Skill{{Name: "x", Hash: "abc"}}},
+	})
+	if single[0].Drift != DriftSingle {
+		t.Fatalf("single group drift = %v, want DriftSingle", single[0].Drift)
+	}
+
+	// A location without a hash makes the group unclassifiable.
+	unknown := GroupPlugins([]ConfigDir{
+		{Path: "/a/.claude", Plugins: []Plugin{{Name: "p", Hash: "abc"}}},
+		{Path: "/b/.claude", Plugins: []Plugin{{Name: "p"}}},
+	})
+	if unknown[0].Drift != DriftUnknown {
+		t.Fatalf("unhashable group drift = %v, want DriftUnknown", unknown[0].Drift)
+	}
+}
+
 // TestGroupPluginsByIdentity verifies the same plugin name in two
 // marketplaces stays two groups, while the same identity in two config dirs
 // merges.

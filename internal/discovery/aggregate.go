@@ -11,12 +11,80 @@ import "sort"
 type Located[T any] struct {
 	ConfigDir string
 	Item      T
+	// Hash is the content hash of this occurrence's dir, "" when it could
+	// not be hashed.
+	Hash string
+	// DiffCount is how many files differ between this occurrence and the
+	// group's first location (the reference copy): 0 for the reference
+	// itself and for unhashable occurrences.
+	DiffCount int
+}
+
+// DriftState classifies the locations of one artifact group by content.
+type DriftState int
+
+// The drift states of a group.
+const (
+	// DriftSingle: one location, nothing to compare against.
+	DriftSingle DriftState = iota
+	// DriftIdentical: every location holds byte-identical content.
+	DriftIdentical
+	// DriftDrifted: at least one location's content differs.
+	DriftDrifted
+	// DriftUnknown: some location could not be hashed, so the group cannot
+	// be classified.
+	DriftUnknown
+)
+
+// String names the state for display and JSON output.
+func (d DriftState) String() string {
+	switch d {
+	case DriftIdentical:
+		return "identical"
+	case DriftDrifted:
+		return "drifted"
+	case DriftUnknown:
+		return "unknown"
+	default:
+		return "single"
+	}
+}
+
+// MarshalText makes the state encode as its name in JSON.
+func (d DriftState) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
+
+// classifyLocations computes each location's diff count against the group's
+// first location and returns the group's drift state.
+func classifyLocations[T any](locs []Located[T], files func(T) map[string]string) DriftState {
+	if len(locs) <= 1 {
+		return DriftSingle
+	}
+
+	reference := files(locs[0].Item)
+	state := DriftIdentical
+	unknown := false
+	for i := range locs {
+		if i > 0 {
+			locs[i].DiffCount = countFileDiffs(reference, files(locs[i].Item))
+		}
+		if locs[i].Hash == "" {
+			unknown = true
+		}
+		if locs[i].Hash != locs[0].Hash {
+			state = DriftDrifted
+		}
+	}
+	if unknown {
+		return DriftUnknown
+	}
+	return state
 }
 
 // SkillGroup is one skill name and everywhere it exists.
 type SkillGroup struct {
 	Name        string
 	Description string // first non-empty description across locations
+	Drift       DriftState
 	Locations   []Located[Skill]
 }
 
@@ -37,14 +105,16 @@ func GroupSkills(dirs []ConfigDir) []SkillGroup {
 			if group.Description == "" {
 				group.Description = skill.Description
 			}
-			group.Locations = append(group.Locations, Located[Skill]{ConfigDir: dir.Path, Item: skill})
+			group.Locations = append(group.Locations, Located[Skill]{ConfigDir: dir.Path, Item: skill, Hash: skill.Hash})
 		}
 	}
 
 	sort.Strings(order)
 	groups := make([]SkillGroup, 0, len(order))
 	for _, name := range order {
-		groups = append(groups, *index[name])
+		group := index[name]
+		group.Drift = classifyLocations(group.Locations, func(s Skill) map[string]string { return s.fileHashes })
+		groups = append(groups, *group)
 	}
 	return groups
 }
@@ -59,6 +129,7 @@ type PluginGroup struct {
 	Marketplace string
 	Version     string // first non-empty across locations
 	Description string // first non-empty across locations
+	Drift       DriftState
 	Locations   []Located[Plugin]
 }
 
@@ -86,14 +157,16 @@ func GroupPlugins(dirs []ConfigDir) []PluginGroup {
 			if group.Description == "" {
 				group.Description = plugin.Description
 			}
-			group.Locations = append(group.Locations, Located[Plugin]{ConfigDir: dir.Path, Item: plugin})
+			group.Locations = append(group.Locations, Located[Plugin]{ConfigDir: dir.Path, Item: plugin, Hash: plugin.Hash})
 		}
 	}
 
 	sort.Strings(order)
 	groups := make([]PluginGroup, 0, len(order))
 	for _, key := range order {
-		groups = append(groups, *index[key])
+		group := index[key]
+		group.Drift = classifyLocations(group.Locations, func(p Plugin) map[string]string { return p.fileHashes })
+		groups = append(groups, *group)
 	}
 	return groups
 }
@@ -103,6 +176,7 @@ type MarketplaceGroup struct {
 	Name        string
 	Source      string   // first non-empty across locations
 	PluginNames []string // first non-empty catalog across locations
+	Drift       DriftState
 	Locations   []Located[Marketplace]
 }
 
@@ -126,14 +200,16 @@ func GroupMarketplaces(dirs []ConfigDir) []MarketplaceGroup {
 			if len(group.PluginNames) == 0 {
 				group.PluginNames = mkt.PluginNames
 			}
-			group.Locations = append(group.Locations, Located[Marketplace]{ConfigDir: dir.Path, Item: mkt})
+			group.Locations = append(group.Locations, Located[Marketplace]{ConfigDir: dir.Path, Item: mkt, Hash: mkt.Hash})
 		}
 	}
 
 	sort.Strings(order)
 	groups := make([]MarketplaceGroup, 0, len(order))
 	for _, name := range order {
-		groups = append(groups, *index[name])
+		group := index[name]
+		group.Drift = classifyLocations(group.Locations, func(m Marketplace) map[string]string { return m.fileHashes })
+		groups = append(groups, *group)
 	}
 	return groups
 }
