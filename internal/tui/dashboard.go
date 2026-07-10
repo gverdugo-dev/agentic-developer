@@ -34,6 +34,16 @@ const (
 	modeConfirm
 )
 
+// inputKind selects what the footer input line collects while the dashboard
+// is in modeInput: a new scan root ("o") or a marketplace source ("a").
+type inputKind int
+
+// The input purposes.
+const (
+	inputRoot inputKind = iota
+	inputMarketSource
+)
+
 // actionKind is the mutation a pendingAction performs.
 type actionKind int
 
@@ -43,6 +53,8 @@ const (
 	actionUninstall
 	actionRemoveMarket
 	actionToggle
+	actionInstall
+	actionAddMarket
 )
 
 // pendingAction is a mutation waiting for confirmation (or running). label
@@ -89,6 +101,10 @@ func runAction(a pendingAction) tea.Cmd {
 			_, err = manage.RemoveMarketplace(a.key)
 		case actionToggle:
 			_, err = manage.SetPluginEnabled(a.key, a.enable)
+		case actionInstall:
+			_, err = manage.InstallPlugin(a.key)
+		case actionAddMarket:
+			_, err = manage.AddMarketplace(a.key)
 		}
 		return actionResultMsg{label: a.label, err: err}
 	}
@@ -167,6 +183,12 @@ type dashModel struct {
 	drilled     bool
 	drillParent int
 
+	// marketDrilled marks the marketplaces view showing the plugin catalog
+	// of one marketplace group (the one at marketParent) instead of the
+	// marketplace list; "i" on a catalog entry installs it.
+	marketDrilled bool
+	marketParent  int
+
 	// page, when non-nil, is the full-screen detail page on top of the
 	// browse layout.
 	page *pageState
@@ -199,6 +221,7 @@ type dashModel struct {
 	markets []discovery.MarketplaceGroup
 
 	input    textinput.Model
+	inputFor inputKind
 	inputErr error
 	spin     spinner.Model
 }
@@ -207,7 +230,7 @@ type dashModel struct {
 // matching scanCmd, so pendingRoot starts set.
 func newDash(version, root string) dashModel {
 	input := textinput.New()
-	input.Placeholder = "/absolute/path"
+	input.Placeholder = rootPlaceholder
 	input.Prompt = ""
 
 	spin := spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(spinnerStyle))
@@ -227,7 +250,8 @@ func newDash(version, root string) dashModel {
 // error stays visible instead of being clipped at the terminal edge.
 func (m *dashModel) setSize(width, height int) {
 	m.width, m.height = width, height
-	m.input.Width = width - lipgloss.Width(inputPrompt) - inputErrorReserve
+	// The width budget assumes the widest of the two footer prompts.
+	m.input.Width = width - lipgloss.Width(sourcePrompt) - inputErrorReserve
 	if m.input.Width < minInputWidth {
 		m.input.Width = minInputWidth
 	}
@@ -280,8 +304,31 @@ func (m dashModel) listLen() int {
 	case viewPluginsTab:
 		return len(m.plugins)
 	default:
+		if m.marketDrilled {
+			return len(m.marketCatalog())
+		}
 		return len(m.markets)
 	}
+}
+
+// marketCatalog returns the plugin names offered by the drilled marketplace
+// group.
+func (m dashModel) marketCatalog() []string {
+	if m.marketParent >= len(m.markets) {
+		return nil
+	}
+	return m.markets[m.marketParent].PluginNames
+}
+
+// isInstalled reports whether a plugin identity ("name@marketplace") appears
+// among the discovered plugins.
+func (m dashModel) isInstalled(key string) bool {
+	for _, g := range m.plugins {
+		if g.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 // drillRefs flattens the artifacts of the drilled config dir, skills first,
@@ -393,6 +440,7 @@ func (m dashModel) Update(msg tea.Msg) (dashModel, tea.Cmd) {
 		m.plugins = discovery.GroupPlugins(msg.dirs)
 		m.markets = discovery.GroupMarketplaces(msg.dirs)
 		m.drilled = false
+		m.marketDrilled = false
 		m.page = nil
 		if m.selected >= m.listLen() {
 			m.selected = 0
@@ -476,10 +524,16 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 		return m, tea.Quit
 
 	case "esc", "backspace":
-		if m.drilled {
+		switch {
+		case m.view == viewPathsTab && m.drilled:
 			m.drilled = false
 			m.resetList()
 			m.selected = m.drillParent
+			m.ensureSelectedVisible()
+		case m.view == viewMarketsTab && m.marketDrilled:
+			m.marketDrilled = false
+			m.resetList()
+			m.selected = m.marketParent
 			m.ensureSelectedVisible()
 		}
 
@@ -488,6 +542,7 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 		if view != m.view {
 			m.view = view
 			m.drilled = false
+			m.marketDrilled = false
 			m.focus = panelPaths
 			m.resetList()
 		}
@@ -530,10 +585,27 @@ func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 	case "t":
 		return m.requestToggle()
 
+	case "i":
+		return m.requestInstall()
+
+	case "a":
+		if m.view != viewMarketsTab {
+			m.status = itemMutedStyle.Render("marketplaces are added from the marketplaces view (4)")
+			return m, nil
+		}
+		m.mode = modeInput
+		m.inputFor = inputMarketSource
+		m.inputErr = nil
+		m.input.SetValue("")
+		m.input.Placeholder = sourcePlaceholder
+		return m, m.input.Focus()
+
 	case "o":
 		m.mode = modeInput
+		m.inputFor = inputRoot
 		m.inputErr = nil
 		m.input.SetValue(m.root)
+		m.input.Placeholder = rootPlaceholder
 		m.input.CursorEnd()
 		return m, m.input.Focus()
 	}
@@ -583,6 +655,10 @@ func (m dashModel) requestDelete() dashModel {
 		action = pluginDeleteAction(g.Locations[0].Item)
 
 	default:
+		if m.marketDrilled {
+			m.status = itemMutedStyle.Render("catalog entries are installed with i, not deleted")
+			return m
+		}
 		g := m.markets[m.selected]
 		if len(g.Locations) > 1 {
 			m.status = itemMutedStyle.Render(fmt.Sprintf("%s lives in %d places: delete it from the paths view", g.Name, len(g.Locations)))
@@ -683,6 +759,40 @@ func (m dashModel) requestToggle() (dashModel, tea.Cmd) {
 	}), m.spin.Tick)
 }
 
+// requestInstall drives "i" in the marketplaces view: on a marketplace group
+// it drills into the plugin catalog, and on a catalog entry it installs that
+// plugin through the claude CLI. Installing is additive, so like the toggle
+// it runs without a confirm prompt.
+func (m dashModel) requestInstall() (dashModel, tea.Cmd) {
+	if m.view != viewMarketsTab || m.page != nil {
+		m.status = itemMutedStyle.Render("install works from the marketplaces view (4)")
+		return m, nil
+	}
+	if m.listLen() == 0 {
+		return m, nil
+	}
+
+	if !m.marketDrilled {
+		g := m.markets[m.selected]
+		if len(g.PluginNames) == 0 {
+			m.status = itemMutedStyle.Render(g.Name + " offers no plugin catalog to install from")
+			return m, nil
+		}
+		m.marketDrilled = true
+		m.marketParent = m.selected
+		m.resetList()
+		return m, nil
+	}
+
+	key := m.marketCatalog()[m.selected] + "@" + m.markets[m.marketParent].Name
+	m.busy = true
+	return m, tea.Batch(runAction(pendingAction{
+		kind:  actionInstall,
+		label: "installed " + key,
+		key:   key,
+	}), m.spin.Tick)
+}
+
 // updateConfirmKey applies the confirm-prompt key map: y/n for normal
 // deletes, the typed name plus enter for whole config dirs.
 func (m dashModel) updateConfirmKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
@@ -724,7 +834,7 @@ func (m dashModel) cancelConfirm() dashModel {
 	m.mode = modeNormal
 	m.inputErr = nil
 	m.input.Blur()
-	m.input.Placeholder = "/absolute/path"
+	m.input.Placeholder = rootPlaceholder
 	return m
 }
 
@@ -767,11 +877,34 @@ func (m dashModel) openSelected() dashModel {
 		m.page = &pageState{title: "plugin: " + g.Key, content: pluginGroupPreview(g)}
 
 	default:
+		if m.marketDrilled {
+			name := m.marketCatalog()[m.selected]
+			m.page = &pageState{title: "catalog: " + name, content: m.catalogEntryPreview(m.selected)}
+			return m
+		}
 		g := m.markets[m.selected]
 		m.page = &pageState{title: "marketplace: " + g.Name, content: marketplaceGroupPreview(g)}
 	}
 
 	return m
+}
+
+// catalogEntryPreview details one plugin of the drilled marketplace catalog:
+// its identity and whether it is already installed somewhere.
+func (m dashModel) catalogEntryPreview(i int) string {
+	g := m.markets[m.marketParent]
+	name := m.marketCatalog()[i]
+	key := name + "@" + g.Name
+
+	var b strings.Builder
+	b.WriteString(itemSelectedStyle.Render(name) + itemMutedStyle.Render("@"+g.Name) + "\n\n")
+	if m.isInstalled(key) {
+		b.WriteString(itemMutedStyle.Render("state ") + itemSelectedStyle.Render("installed") + "\n")
+	} else {
+		b.WriteString(itemMutedStyle.Render("state not installed") + "\n\n")
+		b.WriteString(itemMutedStyle.Render("press i to install it"))
+	}
+	return b.String()
 }
 
 // artifactPage builds the page of one artifact of the drilled config dir.
@@ -790,25 +923,36 @@ func (m dashModel) artifactPage(ref artifactRef) (title, content string) {
 	}
 }
 
-// updateInputKey applies the root-input key map: enter validates and
-// launches the scan, esc cancels, everything else edits the input.
+// updateInputKey applies the footer-input key map: enter validates and
+// launches the input's purpose (a rescan for the root, a marketplace add for
+// a source), esc cancels, everything else edits the input.
 func (m dashModel) updateInputKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
-		m.mode = modeNormal
-		m.inputErr = nil
-		m.input.Blur()
-		return m, nil
+		return m.closeInput(), nil
 
 	case tea.KeyEnter:
+		if m.inputFor == inputMarketSource {
+			source := strings.TrimSpace(m.input.Value())
+			if source == "" {
+				m.inputErr = fmt.Errorf("source is required")
+				return m, nil
+			}
+			m = m.closeInput()
+			m.busy = true
+			return m, tea.Batch(runAction(pendingAction{
+				kind:  actionAddMarket,
+				label: "added marketplace " + source,
+				key:   source,
+			}), m.spin.Tick)
+		}
+
 		root, err := validateRoot(m.input.Value())
 		if err != nil {
 			m.inputErr = err
 			return m, nil
 		}
-		m.mode = modeNormal
-		m.inputErr = nil
-		m.input.Blur()
+		m = m.closeInput()
 		m.pendingRoot = root
 		m.scanErr = nil
 		m.resetList()
@@ -819,6 +963,15 @@ func (m dashModel) updateInputKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
 	m.input, cmd = m.input.Update(msg)
 	m.inputErr = nil
 	return m, cmd
+}
+
+// closeInput leaves the footer input, restoring its idle configuration.
+func (m dashModel) closeInput() dashModel {
+	m.mode = modeNormal
+	m.inputErr = nil
+	m.input.Blur()
+	m.input.Placeholder = rootPlaceholder
+	return m
 }
 
 // validateRoot turns the typed value into a usable scan root: it expands a
@@ -860,6 +1013,13 @@ const (
 	panelBorderLines = 2
 	minPanelWidth    = 20
 	inputPrompt      = " new root ▸ "
+	// sourcePrompt heads the footer input while it collects a marketplace
+	// source ("a" in the marketplaces view).
+	sourcePrompt = " add marketplace ▸ "
+	// The input placeholders: the idle/root one, and the marketplace source
+	// hint listing what the claude CLI accepts.
+	rootPlaceholder   = "/absolute/path"
+	sourcePlaceholder = "owner/repo, git url or /path"
 	// inputErrorReserve is the width kept free at the end of the input line
 	// for the longest validation error ("✗ path must be absolute" plus its
 	// separator). The input scrolls horizontally, so capping its window
@@ -948,7 +1108,11 @@ func displayRoot(path string) string {
 func (m dashModel) viewFooter() string {
 	switch {
 	case m.mode == modeInput:
-		line := inputPromptStyle.Render(inputPrompt) + m.input.View()
+		prompt := inputPrompt
+		if m.inputFor == inputMarketSource {
+			prompt = sourcePrompt
+		}
+		line := inputPromptStyle.Render(prompt) + m.input.View()
 		if m.inputErr != nil {
 			line += "  " + errorTextStyle.Render("✗ "+m.inputErr.Error())
 		}
@@ -973,6 +1137,12 @@ func (m dashModel) viewFooter() string {
 
 	if m.page != nil {
 		return footerStyle.Render(" esc: back · j/k: scroll · q: quit")
+	}
+	if m.view == viewMarketsTab {
+		if m.marketDrilled {
+			return footerStyle.Render(" i: install · enter: open · esc: back · j/k: move · q: quit")
+		}
+		return footerStyle.Render(" enter: open · i: catalog · a: add · d: delete · 1-4: view · o: root · q: quit")
 	}
 	return footerStyle.Render(" enter: open · d: delete · t: toggle · 1-4: view · o: root · j/k: move · q: quit")
 }
@@ -1022,6 +1192,9 @@ func (m dashModel) listTitle() string {
 	if m.view == viewPathsTab && m.drilled && m.drillParent < len(m.dirs) {
 		return truncateTail(m.displayPath(m.dirs[m.drillParent].Path), 24)
 	}
+	if m.view == viewMarketsTab && m.marketDrilled && m.marketParent < len(m.markets) {
+		return truncateTail(m.markets[m.marketParent].Name+" catalog", 24)
+	}
 	name := viewNames[m.view]
 	return strings.ToUpper(name[:1]) + name[1:]
 }
@@ -1048,9 +1221,27 @@ func (m dashModel) rowLabel(i, budget int, style lipgloss.Style) string {
 		return groupRow(g.Key, len(g.Locations), budget, style)
 
 	default:
+		if m.marketDrilled {
+			return m.catalogRowLabel(i, budget, style)
+		}
 		g := m.markets[i]
 		return groupRow(g.Name, len(g.Locations), budget, style)
 	}
+}
+
+// catalogRowLabel renders one plugin of the drilled marketplace catalog,
+// marking the ones already installed.
+func (m dashModel) catalogRowLabel(i, budget int, style lipgloss.Style) string {
+	names := m.marketCatalog()
+	if i >= len(names) {
+		return ""
+	}
+	name := names[i]
+	if m.isInstalled(name + "@" + m.markets[m.marketParent].Name) {
+		mark := "✓"
+		return style.Render(truncateTail(name, budget-lipgloss.Width(mark)-1)) + " " + itemMutedStyle.Render(mark)
+	}
+	return style.Render(truncateTail(name, budget))
 }
 
 // drillRowLabel renders one artifact row of the drilled config dir, tagged
@@ -1156,7 +1347,11 @@ func (m dashModel) detailLines(inner int) []string {
 		case viewPluginsTab:
 			content = pluginGroupPreview(m.plugins[m.selected])
 		default:
-			content = marketplaceGroupPreview(m.markets[m.selected])
+			if m.marketDrilled {
+				content = m.catalogEntryPreview(m.selected)
+			} else {
+				content = marketplaceGroupPreview(m.markets[m.selected])
+			}
 		}
 	}
 
