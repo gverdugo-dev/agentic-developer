@@ -1,0 +1,74 @@
+# adev's default ignore list, compiled into the binary and applied on every
+# discovery scan on top of the .gitignore files found in the tree. These are
+# places where a harness config dir cannot meaningfully live (dependency
+# folders, caches, build output), so walking them would only waste time.
+# Standard gitignore syntax; directory patterns end in "/".
+
+# Version control internals
+.git/
+.hg/
+.svn/
+
+# Dependency folders
+node_modules/
+vendor/
+bower_components/
+jspm_packages/
+web_modules/
+.pnpm-store/
+.yarn/
+
+# Python environments and caches
+__pycache__/
+.venv/
+venv/
+.tox/
+.nox/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+site-packages/
+
+# Build output
+dist/
+build/
+out/
+target/
+bin/
+obj/
+_build/
+.next/
+.nuxt/
+.svelte-kit/
+.astro/
+.output/
+.vercel/
+.netlify/
+.serverless/
+coverage/
+htmlcov/
+
+# Caches and tool state
+.cache/
+.turbo/
+.parcel-cache/
+.gradle/
+.m2/
+.cargo/
+.rustup/
+.terraform/
+.pulumi/
+.direnv/
+.ccache/
+.sass-cache/
+
+# OS and editor noise
+.Trash/
+.idea/
+.vscode/
+
+# Scratch folders
+tmp/
+temp/
