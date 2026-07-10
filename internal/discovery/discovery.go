@@ -9,26 +9,39 @@
 package discovery
 
 import (
+	"agentic-developer/internal/harness"
 	"agentic-developer/internal/scaffolding"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // ConfigDir is one discovered harness config directory and its summary.
+// What gets collected is driven entirely by the dir's harness adapter (see
+// internal/harness): only the artifact kinds the harness actually supports
+// are listed.
 type ConfigDir struct {
 	// Path is the absolute path of the config dir itself.
 	Path string
 	// Harness is the tool the dir belongs to, resolved from its name.
 	Harness scaffolding.AIHarness
-	// Skills are the skills under <Path>/skills, sorted by name.
+	// Skills are the skills under the harness's skills container, sorted by
+	// name.
 	Skills []Skill
 	// Plugins and Marketplaces come from the harness's own registry when the
 	// config dir has one (Claude), the same data its /plugins screen shows;
-	// otherwise they fall back to the folder layout.
+	// otherwise they fall back to the folder layout of the harness's
+	// containers. Harnesses without the concept report none.
 	Plugins      []Plugin
 	Marketplaces []Marketplace
+	// Prompts are the prompt files of harnesses that load reusable prompts
+	// from a folder (Codex), sorted by name.
+	Prompts []Prompt
+	// Instructions are the harness's instruction/config files found in or
+	// next to the config dir (CLAUDE.md, AGENTS.md, opencode.json).
+	Instructions []string
 }
 
 // Skill is one skill folder, with the metadata parsed from its SKILL.md
@@ -74,6 +87,14 @@ type Marketplace struct {
 	fileHashes  map[string]string
 }
 
+// Prompt is one reusable prompt file of a harness that loads them from a
+// folder (Codex's prompts dir, where each markdown file becomes a custom
+// command).
+type Prompt struct {
+	Name string
+	Path string
+}
+
 // Scan walks the tree under root and returns every harness config dir found,
 // sorted by path. root must be an existing directory. The config dirs
 // sitting directly in the user's home (~/.claude, ~/.codex, ~/.opencode) are
@@ -114,8 +135,8 @@ func prependUserConfigs(found []ConfigDir) []ConfigDir {
 	}
 
 	var user []ConfigDir
-	for _, harness := range scaffolding.HarnessesInOrder() {
-		path := filepath.Join(home, scaffolding.MarkerFor(harness))
+	for _, ad := range harness.All() {
+		path := filepath.Join(home, ad.Marker())
 		if seen[path] {
 			continue
 		}
@@ -123,47 +144,54 @@ func prependUserConfigs(found []ConfigDir) []ConfigDir {
 		if err != nil || !info.IsDir() {
 			continue
 		}
-		user = append(user, collectConfigDir(path, harness))
+		user = append(user, collectConfigDir(path, ad))
 	}
 
 	return append(user, found...)
 }
 
-// collectConfigDir summarizes one config dir. Claude dirs prefer their own
-// plugin registry (what /plugins shows); every other case lists the artifact
-// folders the scaffolder lays out.
-func collectConfigDir(path string, harness scaffolding.AIHarness) ConfigDir {
+// collectConfigDir summarizes one config dir, collecting exactly the
+// containers its adapter declares. Harnesses with their own plugin registry
+// (Claude) prefer it, the same data their own UI shows; without a readable
+// registry the folder layout is listed instead, so a
+// scaffolded-but-unregistered config dir still reports something.
+func collectConfigDir(path string, ad harness.Adapter) ConfigDir {
 	dir := ConfigDir{
-		Path:    path,
-		Harness: harness,
-		Skills:  collectSkills(path),
+		Path:         path,
+		Harness:      ad.ID(),
+		Instructions: ad.InstructionFiles(path),
 	}
 
-	if harness == scaffolding.Claude {
-		if plugins, ok := claudePlugins(path); ok {
-			dir.Plugins = plugins
-		} else {
-			dir.Plugins = folderPlugins(path)
+	reg := ad.Registry(path)
+	for _, c := range ad.Containers() {
+		switch c.Kind {
+		case harness.KindSkill:
+			dir.Skills = collectSkills(path, c.Dir)
+		case harness.KindPrompt:
+			dir.Prompts = collectPrompts(path, c.Dir)
+		case harness.KindPlugin:
+			if reg.HasInstalled {
+				dir.Plugins = registryPlugins(ad, reg)
+			} else {
+				dir.Plugins = folderPlugins(ad, path, c.Dir)
+			}
+		case harness.KindMarketplace:
+			if reg.HasMarketplaces {
+				dir.Marketplaces = registryMarketplaces(ad, reg)
+			} else {
+				dir.Marketplaces = folderMarketplaces(ad, path, c.Dir)
+			}
 		}
-		if marketplaces, ok := claudeMarketplaces(path); ok {
-			dir.Marketplaces = marketplaces
-		} else {
-			dir.Marketplaces = folderMarketplaces(path)
-		}
-		return dir
 	}
-
-	dir.Plugins = folderPlugins(path)
-	dir.Marketplaces = folderMarketplaces(path)
 	return dir
 }
 
-// collectSkills lists the skills of a config dir, each with the metadata
-// parsed from its SKILL.md.
-func collectSkills(configDir string) []Skill {
+// collectSkills lists the skills under configDir/<container>, each with the
+// metadata parsed from its SKILL.md.
+func collectSkills(configDir, container string) []Skill {
 	var skills []Skill
-	for _, name := range artifactDirs(configDir, "skills") {
-		path := filepath.Join(configDir, "skills", name)
+	for _, name := range artifactDirs(configDir, container) {
+		path := filepath.Join(configDir, container, name)
 		hash, files := hashArtifactDir(path)
 		skills = append(skills, Skill{
 			Name:        name,
@@ -176,19 +204,43 @@ func collectSkills(configDir string) []Skill {
 	return skills
 }
 
+// collectPrompts lists the prompt files under configDir/<container>: every
+// markdown file there, sorted by name. No container, or an unreadable one,
+// yields nil.
+func collectPrompts(configDir, container string) []Prompt {
+	entries, err := os.ReadDir(filepath.Join(configDir, container))
+	if err != nil {
+		return nil
+	}
+
+	var prompts []Prompt
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		prompts = append(prompts, Prompt{
+			Name: strings.TrimSuffix(entry.Name(), ".md"),
+			Path: filepath.Join(configDir, container, entry.Name()),
+		})
+	}
+	sort.Slice(prompts, func(i, j int) bool { return prompts[i].Name < prompts[j].Name })
+	return prompts
+}
+
 // folderPlugins lists plugins by folder layout, for config dirs without a
-// registry, reading each plugin's own manifest for its metadata.
-func folderPlugins(configDir string) []Plugin {
+// registry, reading each plugin's own manifest (whatever file that is for
+// the harness) for its metadata.
+func folderPlugins(ad harness.Adapter, configDir, container string) []Plugin {
 	var plugins []Plugin
-	for _, name := range artifactDirs(configDir, "plugins") {
-		path := filepath.Join(configDir, "plugins", name)
-		man := readPluginManifest(path)
+	for _, name := range artifactDirs(configDir, container) {
+		path := filepath.Join(configDir, container, name)
+		meta := ad.PluginMeta(path)
 		hash, files := hashArtifactDir(path)
 		plugins = append(plugins, Plugin{
 			Name:        name,
-			Version:     man.Version,
+			Version:     meta.Version,
 			Path:        path,
-			Description: man.Description,
+			Description: meta.Description,
 			Hash:        hash,
 			fileHashes:  files,
 		})
@@ -198,19 +250,75 @@ func folderPlugins(configDir string) []Plugin {
 
 // folderMarketplaces lists marketplaces by folder layout, for config dirs
 // without a registry, reading each catalog for the plugins it offers.
-func folderMarketplaces(configDir string) []Marketplace {
+func folderMarketplaces(ad harness.Adapter, configDir, container string) []Marketplace {
 	var marketplaces []Marketplace
-	for _, name := range artifactDirs(configDir, "marketplaces") {
-		path := filepath.Join(configDir, "marketplaces", name)
+	for _, name := range artifactDirs(configDir, container) {
+		path := filepath.Join(configDir, container, name)
 		hash, files := hashArtifactDir(path)
 		marketplaces = append(marketplaces, Marketplace{
 			Name:        name,
 			Path:        path,
-			PluginNames: marketplacePluginNames(path),
+			PluginNames: ad.MarketplaceMeta(path).PluginNames,
 			Hash:        hash,
 			fileHashes:  files,
 		})
 	}
+	return marketplaces
+}
+
+// registryPlugins cooks the registry's installed plugins into the discovery
+// listing, with the enabled state and each install's metadata.
+func registryPlugins(ad harness.Adapter, reg harness.Registry) []Plugin {
+	plugins := make([]Plugin, 0, len(reg.InstalledPlugins))
+	for key, installs := range reg.InstalledPlugins {
+		name, marketplace, _ := strings.Cut(key, "@")
+		version, installPath := "", ""
+		if len(installs) > 0 {
+			// The last entry is the most recent install of the plugin.
+			version = installs[len(installs)-1].Version
+			installPath = installs[len(installs)-1].InstallPath
+		}
+		hash, files := hashArtifactDir(installPath)
+		plugins = append(plugins, Plugin{
+			Name:        name,
+			Marketplace: marketplace,
+			Version:     version,
+			Enabled:     reg.EnabledPlugins[key],
+			Path:        installPath,
+			Description: ad.PluginMeta(installPath).Description,
+			Hash:        hash,
+			fileHashes:  files,
+		})
+	}
+
+	sort.Slice(plugins, func(i, j int) bool {
+		if plugins[i].Name != plugins[j].Name {
+			return plugins[i].Name < plugins[j].Name
+		}
+		return plugins[i].Marketplace < plugins[j].Marketplace
+	})
+	return plugins
+}
+
+// registryMarketplaces cooks the registry's known marketplaces into the
+// discovery listing.
+func registryMarketplaces(ad harness.Adapter, reg harness.Registry) []Marketplace {
+	marketplaces := make([]Marketplace, 0, len(reg.KnownMarketplaces))
+	for name, entry := range reg.KnownMarketplaces {
+		hash, files := hashArtifactDir(entry.InstallLocation)
+		marketplaces = append(marketplaces, Marketplace{
+			Name:        name,
+			Source:      entry.SourceLabel(),
+			Path:        entry.InstallLocation,
+			PluginNames: ad.MarketplaceMeta(entry.InstallLocation).PluginNames,
+			Hash:        hash,
+			fileHashes:  files,
+		})
+	}
+
+	sort.Slice(marketplaces, func(i, j int) bool {
+		return marketplaces[i].Name < marketplaces[j].Name
+	})
 	return marketplaces
 }
 
@@ -240,8 +348,8 @@ func walkDir(root, dir string, ignores []scopedIgnore, found *[]ConfigDir) {
 
 		// A config dir is a leaf of the scan: it is collected and never
 		// descended into, so nothing inside one counts twice.
-		if harness, ok := scaffolding.HarnessForMarker(name); ok {
-			*found = append(*found, collectConfigDir(path, harness))
+		if ad, ok := harness.ForMarker(name); ok {
+			*found = append(*found, collectConfigDir(path, ad))
 			continue
 		}
 

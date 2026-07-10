@@ -216,8 +216,8 @@ func TestGroupSkillsDrift(t *testing.T) {
 			tc.mutate(t, second)
 
 			groups := GroupSkills([]ConfigDir{
-				{Path: first, Skills: collectSkills(first)},
-				{Path: second, Skills: collectSkills(second)},
+				{Path: first, Skills: collectSkills(first, "skills")},
+				{Path: second, Skills: collectSkills(second, "skills")},
 			})
 			if len(groups) != 1 {
 				t.Fatalf("got %d groups, want 1: %+v", len(groups), groups)
@@ -283,8 +283,78 @@ func TestGroupPluginsByIdentity(t *testing.T) {
 	}
 }
 
-// TestReadClaudeRegistry verifies the raw registry reader parses the three
-// registry files and reports which ones were readable.
+// TestCodexConfigDir verifies a Codex dir reports what Codex actually has:
+// skills, prompt files, and AGENTS.md awareness, with no plugin or
+// marketplace listings faked from stray folders.
+func TestCodexConfigDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mkdirs(t, home,
+		".codex/skills/my-skill",
+		".codex/prompts/nested-dir", // dirs in prompts/ are not prompts
+		".codex/plugins/stray",      // codex has no plugin concept
+	)
+	if err := os.WriteFile(filepath.Join(home, ".codex", "prompts", "review.md"), []byte("# review\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".codex", "AGENTS.md"), []byte("# guidance\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dirs, err := Scan(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("got %d dirs, want 1: %+v", len(dirs), dirs)
+	}
+
+	dir := dirs[0]
+	if len(dir.Skills) != 1 || dir.Skills[0].Name != "my-skill" {
+		t.Fatalf("skills = %+v", dir.Skills)
+	}
+	if len(dir.Prompts) != 1 || dir.Prompts[0].Name != "review" {
+		t.Fatalf("prompts = %+v, want [review]", dir.Prompts)
+	}
+	if dir.Plugins != nil || dir.Marketplaces != nil {
+		t.Fatalf("codex dir reports plugins/marketplaces it cannot load: %+v / %+v", dir.Plugins, dir.Marketplaces)
+	}
+	if len(dir.Instructions) != 1 || filepath.Base(dir.Instructions[0]) != "AGENTS.md" {
+		t.Fatalf("instructions = %v, want the AGENTS.md", dir.Instructions)
+	}
+}
+
+// TestOpencodeConfigDir verifies an opencode dir lists its TS plugins with
+// package.json metadata and no marketplace listings.
+func TestOpencodeConfigDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mkdirs(t, home, ".opencode/plugins/notify", ".opencode/marketplaces/stray")
+	pkg := `{"name": "notify", "version": "0.1.0", "description": "sends a bell"}`
+	if err := os.WriteFile(filepath.Join(home, ".opencode", "plugins", "notify", "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dirs, err := Scan(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("got %d dirs, want 1: %+v", len(dirs), dirs)
+	}
+
+	dir := dirs[0]
+	if len(dir.Plugins) != 1 || dir.Plugins[0].Version != "0.1.0" || dir.Plugins[0].Description != "sends a bell" {
+		t.Fatalf("plugins = %+v, want notify 0.1.0 from package.json", dir.Plugins)
+	}
+	if dir.Marketplaces != nil {
+		t.Fatalf("opencode dir reports marketplaces it cannot load: %+v", dir.Marketplaces)
+	}
+}
+
+// TestReadClaudeRegistry verifies the deprecated compat shim still reads the
+// registry through the Claude adapter: it parses the three registry files
+// and reports which ones were readable.
 func TestReadClaudeRegistry(t *testing.T) {
 	configDir := t.TempDir()
 	mkdirs(t, configDir, "plugins")
