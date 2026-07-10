@@ -152,7 +152,7 @@ drifted one.
 
 **Deliverable**: PR.
 
-### T3: adev doctor  [status: open]
+### T3: adev doctor  [status: in-pr]
 
 **Why**: broken artifacts fail silently at runtime: a skill without
 `SKILL.md` never triggers, a plugin enabled in settings but missing from the
