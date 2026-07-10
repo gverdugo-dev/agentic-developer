@@ -14,7 +14,9 @@ import (
 // panel preview and the full-screen detail page.
 
 // configDirPreview summarizes one config dir: its harness, full path and the
-// artifacts it holds.
+// artifacts it holds. Prompts and instruction files only show when the dir's
+// harness actually reported some, so the sections a harness does not have
+// never appear.
 func configDirPreview(dir discovery.ConfigDir) string {
 	var b strings.Builder
 	b.WriteString(itemSelectedStyle.Render(scaffolding.AIHarnesses[dir.Harness]) + "\n")
@@ -25,8 +27,22 @@ func configDirPreview(dir discovery.ConfigDir) string {
 		skills = append(skills, s.Name)
 	}
 	writeArtifactSection(&b, "skills", skills)
+	if len(dir.Prompts) > 0 {
+		prompts := make([]string, 0, len(dir.Prompts))
+		for _, p := range dir.Prompts {
+			prompts = append(prompts, p.Name)
+		}
+		writeArtifactSection(&b, "prompts", prompts)
+	}
 	writeArtifactSection(&b, "plugins", pluginLabels(dir.Plugins))
 	writeArtifactSection(&b, "marketplaces", marketplaceLabels(dir.Marketplaces))
+	if len(dir.Instructions) > 0 {
+		instructions := make([]string, 0, len(dir.Instructions))
+		for _, path := range dir.Instructions {
+			instructions = append(instructions, abbreviateHome(path))
+		}
+		writeArtifactSection(&b, "instructions", instructions)
+	}
 	return b.String()
 }
 
