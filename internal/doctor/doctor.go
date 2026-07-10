@@ -12,9 +12,8 @@ package doctor
 
 import (
 	"agentic-developer/internal/discovery"
-	"agentic-developer/internal/scaffolding"
+	"agentic-developer/internal/harness"
 	"encoding/json"
-	"os"
 	"sort"
 )
 
@@ -59,16 +58,27 @@ type Finding struct {
 // Check runs every health check over the discovered config dirs and returns
 // the findings sorted by severity (errors first), then path, then check, so
 // the report reads as a prioritized checklist. A healthy tree yields nil.
+//
+// The skill checks are the doctor's own: SKILL.md is the one standard every
+// harness shares. Everything harness-specific (manifest shapes, registry
+// cross-references) comes from the dir's adapter, so the doctor never
+// branches on a concrete harness.
 func Check(dirs []discovery.ConfigDir) []Finding {
 	var findings []Finding
 	for _, dir := range dirs {
 		findings = append(findings, checkSkills(dir)...)
-		// plugin.json, marketplace.json and the plugin registry are Claude
-		// concepts; the other harnesses have neither.
-		if dir.Harness == scaffolding.Claude {
-			findings = append(findings, checkManifests(dir)...)
-			findings = append(findings, checkRegistry(dir)...)
+
+		ad, ok := harness.ForID(dir.Harness)
+		if !ok {
+			continue
 		}
+		for _, p := range dir.Plugins {
+			findings = append(findings, toFindings(ad.ValidatePlugin(p.Name, p.Path))...)
+		}
+		for _, m := range dir.Marketplaces {
+			findings = append(findings, toFindings(ad.ValidateMarketplace(m.Name, m.Path))...)
+		}
+		findings = append(findings, toFindings(ad.ValidateRegistry(dir.Path))...)
 	}
 
 	sort.Slice(findings, func(i, j int) bool {
@@ -84,8 +94,22 @@ func Check(dirs []discovery.ConfigDir) []Finding {
 	return findings
 }
 
-// isDir reports whether path exists and is a directory.
-func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
+// toFindings maps an adapter's validation issues to doctor findings, one to
+// one.
+func toFindings(issues []harness.Issue) []Finding {
+	findings := make([]Finding, 0, len(issues))
+	for _, issue := range issues {
+		severity := Error
+		if issue.Severity == harness.IssueWarning {
+			severity = Warning
+		}
+		findings = append(findings, Finding{
+			Severity: severity,
+			Check:    issue.Check,
+			Path:     issue.Path,
+			Message:  issue.Message,
+			FixHint:  issue.FixHint,
+		})
+	}
+	return findings
 }
