@@ -3,7 +3,9 @@ package cli
 import (
 	"agentic-developer/internal/discovery"
 	"agentic-developer/internal/manage"
+	"agentic-developer/internal/registry"
 	"agentic-developer/internal/scaffolding"
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
@@ -32,14 +34,20 @@ func (c skillCmd) Run(args []string) error {
 	harnessFlag := fs.String("harness", "", "target harness: claude, codex, opencode or all (default: detect at the scope)")
 	scopeFlag := fs.String("scope", "user", "target scope: user (the home config dirs) or project (the current dir's)")
 	force := fs.Bool("force", false, "overwrite the skill when a target already has one with that name")
+	fromRegistry := fs.Bool("from-registry", false, "treat the source as a skills.sh reference (owner/repo/skill-id) and fetch it")
+	yes := fs.Bool("yes", false, "registry installs: skip the interactive confirmation (you reviewed the skill)")
 	asJSON := fs.Bool("json", false, "print the per-target results as JSON on stdout")
 
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "Usage: adev skill install <path|discovered-name> [flags]")
+		fmt.Fprintln(fs.Output(), "Usage: adev skill install <path|discovered-name|owner/repo/skill-id> [flags]")
 		fmt.Fprintf(fs.Output(), "\n%s\n", c.Synopsis())
 		fmt.Fprintln(fs.Output(), "\nThe source is a skill directory (it must carry a SKILL.md with valid")
 		fmt.Fprintln(fs.Output(), "frontmatter), or the name of a skill discovered under the current dir.")
 		fmt.Fprintln(fs.Output(), "--harness all installs into every harness config dir present at the scope.")
+		fmt.Fprintln(fs.Output(), "\nWith --from-registry the source is a skills.sh reference (find one with")
+		fmt.Fprintln(fs.Output(), "adev search). A registry skill is a prompt your agent will execute, so it")
+		fmt.Fprintln(fs.Output(), "is never installed blind: its SKILL.md is shown first and the install asks")
+		fmt.Fprintln(fs.Output(), "for confirmation (or requires --yes when no terminal is attached).")
 		fmt.Fprintln(fs.Output(), "\nFlags:")
 		fs.PrintDefaults()
 	}
@@ -61,9 +69,23 @@ func (c skillCmd) Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	srcDir, err := resolveSkillSource(source)
-	if err != nil {
-		return err
+
+	var srcDir, manifest string
+	if *fromRegistry {
+		fetched, err := fetchRegistrySkill(source)
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(fetched.Root)
+		srcDir, manifest = fetched.Dir, fetched.Manifest
+		if err := confirmRegistryInstall(source, manifest, *yes, *asJSON); err != nil {
+			return err
+		}
+	} else {
+		srcDir, err = resolveSkillSource(source)
+		if err != nil {
+			return err
+		}
 	}
 
 	var results []manage.SkillInstall
@@ -84,7 +106,56 @@ func (c skillCmd) Run(args []string) error {
 		results = []manage.SkillInstall{result}
 	}
 
-	return printSkillInstalls(filepath.Base(srcDir), results, *asJSON)
+	return printSkillInstalls(filepath.Base(srcDir), manifest, results, *asJSON)
+}
+
+// fetchRegistrySkill resolves a skills.sh reference and downloads its source
+// repo, returning the located skill dir plus its SKILL.md for the preview.
+// The caller owns (and removes) Fetched.Root.
+func fetchRegistrySkill(ref string) (registry.Fetched, error) {
+	s, err := registry.ParseRef(ref)
+	if err != nil {
+		return registry.Fetched{}, err
+	}
+	return newRegistryClient().FetchSkill(s)
+}
+
+// confirmRegistryInstall is the security gate of a registry install: a
+// third-party skill is a prompt the user's agent will execute, so it is
+// never installed blind. In text mode the fetched SKILL.md is printed and,
+// without --yes, an interactive y/N prompt must approve it; with no terminal
+// attached the install is refused instead. In JSON mode stdout must stay
+// machine-readable, so the manifest travels in the report (see
+// printSkillInstalls) and --yes is required outright.
+func confirmRegistryInstall(ref, manifest string, yes, asJSON bool) error {
+	if asJSON {
+		if !yes {
+			return fmt.Errorf("registry installs with --json are non-interactive: review the skill and pass --yes")
+		}
+		return nil
+	}
+
+	printInfo("%s", muted("--- SKILL.md of ")+accent(ref)+muted(" ---"))
+	printInfo("%s", strings.TrimRight(manifest, "\n"))
+	printInfo("%s", muted("--- end of SKILL.md ---"))
+
+	if yes {
+		return nil
+	}
+	if !interactiveAvailable() {
+		return fmt.Errorf("no terminal to confirm on: review the SKILL.md above and rerun with --yes")
+	}
+
+	fmt.Print("install this skill? [y/N] ")
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && line == "" {
+		return fmt.Errorf("no confirmation read: %v", err)
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return nil
+	}
+	return fmt.Errorf("install cancelled")
 }
 
 // parseSkillScope maps the command's scope words onto the scaffolding scopes:
@@ -146,8 +217,10 @@ func resolveSkillSource(source string) (string, error) {
 
 // printSkillInstalls reports every target's outcome, then decides the exit:
 // results are always printed in full first, so a fan-out failure never hides
-// the targets that did land.
-func printSkillInstalls(name string, results []manage.SkillInstall, asJSON bool) error {
+// the targets that did land. manifest is only set for registry installs; the
+// JSON report then carries the installed SKILL.md, so a script consuming
+// --json can still audit exactly what landed.
+func printSkillInstalls(name, manifest string, results []manage.SkillInstall, asJSON bool) error {
 	if asJSON {
 		type report struct {
 			Skill     string                    `json:"skill"`
@@ -156,10 +229,11 @@ func printSkillInstalls(name string, results []manage.SkillInstall, asJSON bool)
 			Path      string                    `json:"path,omitempty"`
 			Status    manage.SkillInstallStatus `json:"status"`
 			Error     string                    `json:"error,omitempty"`
+			SkillMd   string                    `json:"skillMd,omitempty"`
 		}
 		out := make([]report, 0, len(results))
 		for _, r := range results {
-			entry := report{Skill: name, Harness: r.Harness, ConfigDir: r.ConfigDir, Path: r.Path, Status: r.Status}
+			entry := report{Skill: name, Harness: r.Harness, ConfigDir: r.ConfigDir, Path: r.Path, Status: r.Status, SkillMd: manifest}
 			if r.Err != nil {
 				entry.Error = r.Err.Error()
 			}
