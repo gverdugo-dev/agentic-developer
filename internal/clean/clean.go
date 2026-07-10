@@ -58,6 +58,26 @@ func (a Action) MarshalJSON() ([]byte, error) {
 	return json.Marshal(a.String())
 }
 
+// UnmarshalJSON decodes an action from its name, so candidates round-trip
+// through the JSON the CLI emits.
+func (a *Action) UnmarshalJSON(raw []byte) error {
+	var name string
+	if err := json.Unmarshal(raw, &name); err != nil {
+		return err
+	}
+	switch name {
+	case ActionRemoveDir.String():
+		*a = ActionRemoveDir
+	case ActionUninstall.String():
+		*a = ActionUninstall
+	case ActionRemoveMarketplace.String():
+		*a = ActionRemoveMarketplace
+	default:
+		return fmt.Errorf("unknown clean action %q", name)
+	}
+	return nil
+}
+
 // Candidate is one removable item: what kind of dead weight it is, where it
 // lives, why it is removable, how much disk it reclaims, and how to remove
 // it. Arg carries the plugin key or marketplace name for the claude CLI

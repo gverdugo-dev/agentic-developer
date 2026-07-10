@@ -305,11 +305,19 @@ func TestApplyDelegatesToClaude(t *testing.T) {
 	}
 }
 
-// TestActionJSON verifies actions encode as their names.
+// TestActionJSON verifies actions encode as their names and round-trip.
 func TestActionJSON(t *testing.T) {
 	raw, err := json.Marshal(Candidate{Action: ActionUninstall})
 	if err != nil || !strings.Contains(string(raw), `"action":"uninstall-plugin"`) {
 		t.Fatalf("candidate marshals to %s (%v)", raw, err)
+	}
+
+	var back Candidate
+	if err := json.Unmarshal(raw, &back); err != nil || back.Action != ActionUninstall {
+		t.Fatalf("round-trip = %+v (%v), want uninstall back", back, err)
+	}
+	if err := json.Unmarshal([]byte(`{"action": "explode"}`), &back); err == nil {
+		t.Fatal("an unknown action name was accepted")
 	}
 }
 
