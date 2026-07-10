@@ -29,6 +29,10 @@ that shows every artifact on your machine and lets you act on it.
 - **Cleanup**: `adev clean` lists the removable dead weight (stale cached
   plugin versions, orphaned caches, dead marketplaces, unloadable artifacts)
   with its reclaimable size; dry-run by default, `--apply` removes it.
+- **Reproducible setup**: `adev export` snapshots the discovered setup into a
+  declarative `adevfile.json`, and `adev sync` diffs that manifest against
+  reality and installs what is missing (dry-run by default, `--apply` to
+  execute).
 - **Create and delete** skills, plugins and plugin-marketplaces.
 - **Bundled skills**: `adev setup` installs adev's own skills into your harness,
   teaching the agent how to use the tool and an opinionated way to build
@@ -234,6 +238,51 @@ that is not a harness config dir or inside one. Operations on installed
 plugins and registered marketplaces are delegated to the `claude` CLI, which
 owns that registry and its cache; adev never edits those JSON files by hand.
 
+## The adevfile: a reproducible setup
+
+An adevfile is a declarative JSON manifest of the agent setup a machine or
+project should have: per harness (`claude`, `codex`, `opencode`) and per
+scope (`user` = the config dir in your home, `project` = the one in the
+current directory), the skills, plugins (`name@marketplace`) and
+marketplaces (with the source they are added from). The format is JSON on
+purpose: it is already the house format everywhere else (structures.json,
+plugin.json, Claude's own registry), and adev stays free of extra
+dependencies. The canonical file name is `adevfile.json`.
+
+```json
+{
+  "version": 1,
+  "harnesses": {
+    "claude": {
+      "user": {
+        "skills": ["dataviz"],
+        "plugins": ["personal@gonzaloverdugo"],
+        "marketplaces": [{ "name": "gonzaloverdugo", "source": "owner/repo" }]
+      }
+    }
+  }
+}
+```
+
+```bash
+# Snapshot the current setup (user configs + this project's config dirs)
+adev export adevfile.json
+
+# Diff the manifest against reality: dry run, exit 0 in sync / 1 otherwise
+adev sync
+adev sync --json          # the full plan, machine-readable
+
+# Install what is missing (plugins and marketplaces, via the harness CLI)
+adev sync --apply
+```
+
+A declared scope owns its config dir: everything listed must exist there,
+and anything found but not listed is reported as `extra` (never deleted;
+there is no prune). An undeclared scope is left completely alone. Missing
+plugins and marketplaces are installed through the harness's own CLI;
+missing skills are reported for manual install until adev grows the
+cross-harness skill installer.
+
 ## How it works
 
 The command flows through three layers:
@@ -381,6 +430,7 @@ To change or extend a layout, edit `structures.json` and rebuild.
 │   │   ├── rm.go                    # Guarded artifact/config-dir delete
 │   │   ├── plugin.go                # install / enable / disable / uninstall
 │   │   ├── marketplace.go           # marketplace add / remove
+│   │   ├── export.go / sync.go      # adevfile export + sync
 │   │   └── setup.go                 # `adev setup`: install bundled skills
 │   ├── scaffolding/                 # Typed model + layout engine
 │   │   └── structures.json          # Embedded folder layouts
@@ -388,6 +438,7 @@ To change or extend a layout, edit `structures.json` and rebuild.
 │   ├── discovery/                   # Gitignore-aware scan + grouping + hashes
 │   ├── doctor/                      # Health checks behind `adev doctor`
 │   ├── clean/                       # Removal candidates behind `adev clean`
+│   ├── adevfile/                    # The manifest: schema, export, sync engines
 │   ├── manage/                      # Deletes + forwarding to the Claude adapter
 │   ├── tui/                         # The Bubble Tea dashboard
 │   └── brand/                       # The shared color palette

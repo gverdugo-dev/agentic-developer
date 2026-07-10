@@ -206,17 +206,18 @@ discovery and the TUI.
 **Deliverable**: PR. Touches the discovery core: do not run in parallel
 with T2 or T3; rebase on them instead.
 
-### T6: adevfile manifest + sync  [status: open, depends: T1, T5]
+### T6: adevfile manifest + sync  [status: in-pr, depends: T1, T5]
 
 **Why**: a machine's agent setup should be reproducible. A declarative
 manifest (which skills, plugins and marketplaces you want, per harness) plus
 `adev sync` generalizes the hand-written `setup.sh` pattern into the
 product itself.
 
-- [ ] Manifest schema (`adevfile`) and parser.
-- [ ] `adev export`: current discovered state to an adevfile.
-- [ ] `adev sync`: diff manifest vs reality, apply via manage/adapters,
-      dry-run by default.
+- [x] Manifest schema (`adevfile`) and parser.
+- [x] `adev export`: current discovered state to an adevfile.
+- [x] `adev sync`: diff manifest vs reality, apply via manage/adapters,
+      dry-run by default. Skill install stays behind the
+      `adevfile.InstallSkill` seam until T7 lands its copier.
 
 **Deliverable**: PR.
 
