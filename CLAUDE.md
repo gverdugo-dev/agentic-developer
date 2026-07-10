@@ -53,6 +53,7 @@ internal/cli/               Boundary: every invocation is a Command that parses
   doctor.go                 doctorCmd: the health report over internal/doctor (--json).
   clean.go                  cleanCmd: removal candidates via internal/clean (--json, --apply).
   rm.go                     rmCmd: guarded delete of an artifact or config dir.
+  skill.go                  skillCmd: cross-harness skill install (--harness all fan-out).
   plugin.go                 pluginCmd: install/enable/disable/uninstall via the claude CLI.
   marketplace.go            marketplaceCmd: marketplace add/remove via the claude CLI.
   setup.go                  setupCmd: install bundled skills into a harness.
@@ -81,6 +82,7 @@ internal/clean/             Removal candidates (stale caches, orphans, dead mark
 internal/manage/            Mutations on discovered resources.
   manage.go                 DeleteArtifact: guarded filesystem deletes.
   claude.go                 Plugin/marketplace helpers forwarding to the Claude adapter.
+  skill.go                  InstallSkill*: hash-verified skill copies into any harness.
 internal/tui/               The lazygit-style dashboard (Bubble Tea).
   tui.go                    Root model: state machine (intro -> dashboard), global keys.
   intro.go                  The logo decode animation.

@@ -87,6 +87,7 @@ adev list <skills|plugins|marketplaces> [path] [--json] [--duplicates]
 adev doctor [path] [--json]
 adev clean [path] [--json] [--apply]
 adev rm <absolute-path> [--yes]
+adev skill install <path|name> [--harness h|all] [--scope user|project] [--force] [--json]
 adev plugin <install|enable|disable|uninstall> <name@marketplace>
 adev marketplace <add <source>|remove <name>>
 adev setup [harness]
@@ -174,7 +175,7 @@ enter opens a full-screen detail page. Keys:
 | `o`             | change the scan root (footer input; absolute path, `~` works)  |
 | `d`             | delete the selection (y/n; config dirs demand the typed name)  |
 | `t`             | enable/disable the selected installed plugin                   |
-| `c`             | doctor: list the clean candidates; `d` removes one (y/n)       |
+| `c`             | skill rows: copy to another harness (footer picker; enter runs it); doctor: list the clean candidates |
 | `i`             | marketplaces: open the catalog; on a catalog entry, install it |
 | `a`             | marketplaces: add a marketplace from a source (footer input)   |
 | `q`, `ctrl+c`   | quit                                                           |
@@ -210,6 +211,12 @@ adev clean ~/dev --apply
 
 # Delete an artifact folder, or a whole config dir (typed-name confirm)
 adev rm /abs/path/.claude/skills/old-skill
+
+# Copy a skill into another harness's skills dir (or every harness present).
+# The source is a path or a discovered name; the copy is hash-verified and an
+# existing skill is only overwritten with --force
+adev skill install ~/.claude/skills/my-skill --harness codex
+adev skill install my-skill --harness all --scope user
 
 # Install, toggle or uninstall a plugin (delegated to the claude CLI)
 adev plugin install personal@gonzaloverdugo

@@ -220,7 +220,7 @@ product itself.
 
 **Deliverable**: PR.
 
-### T7: cross-harness skill install  [status: open, depends: T5, benefits from T2]
+### T7: cross-harness skill install  [status: in-pr, depends: T5, benefits from T2]
 
 **Why**: skills are the one artifact that is portable across harnesses (the
 SKILL.md standard is shared by Claude Code, Codex, opencode and 20+ agents),
