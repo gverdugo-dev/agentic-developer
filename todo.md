@@ -220,6 +220,80 @@ product itself.
 
 **Deliverable**: PR.
 
+### T7: cross-harness skill install  [status: open, depends: T5, benefits from T2]
+
+**Why**: skills are the one artifact that is portable across harnesses (the
+SKILL.md standard is shared by Claude Code, Codex, opencode and 20+ agents),
+but adev can only scaffold them into one harness at a time. "Put this skill
+in every harness on this machine" is the natural completion of the
+duplicate story: T2 detects the copies, T7 creates them on purpose.
+
+- [ ] `internal/manage` (or the T5 adapters): `InstallSkill(srcDir, harness,
+      scope)` that copies a skill directory into a harness's skills
+      container, refusing to overwrite unless forced, validating SKILL.md
+      frontmatter first.
+- [ ] Support `--harness all` fan-out: install into every harness detected
+      on the machine (both project and user scope targets).
+- [ ] CLI: `adev skill install <path|discovered-name> [--harness X|all]
+      [--scope user|project] [--force] [--json]`.
+- [ ] TUI: `c` (copy to harness) on a skill row opens a harness picker,
+      reusing the footer-input/confirm patterns; busy spinner + rescan.
+- [ ] Unit tests with fixture skill dirs; e2e of the picker when the TUI
+      changes.
+
+**Deliverable**: PR.
+
+### T8: skills.sh registry explorer  [status: open, depends: T7]
+
+**Why**: skills.sh (Vercel Labs) is becoming the npm of agent skills: a
+public directory + leaderboard with install counts across 20+ agents. adev
+already manages what is on disk; the missing half is discovering and pulling
+what is not. A built-in explorer closes the loop: search the registry,
+inspect a skill, install it into any harness, all without leaving adev.
+
+- [ ] `internal/registry`: client for the public JSON API
+      (`GET https://www.skills.sh/api/search?q=<query>` returns
+      `{skills: [{skillId, name, installs, source}]}` where `source` is a
+      GitHub `owner/repo`). Verified working 2026-07-10. Keep the client
+      behind an interface so other registries can plug in later.
+- [ ] Skill fetch: download the source repo (shallow git clone or GitHub
+      codeload tarball, no npm/npx dependency, adev stays self-contained),
+      locate the skill dir by its SKILL.md, hand it to T7's InstallSkill.
+- [ ] CLI: `adev search <query> [--json]` and
+      `adev skill install <owner/repo/skill-id> --from-registry` (exact
+      flag shape can be refined in the PR).
+- [ ] TUI: a registry view (`6 explore`): search input (footer-input
+      pattern), result list showing name, source and install count, detail
+      page with the fetched SKILL.md preview, and `i` to install via the
+      T7 harness picker.
+- [ ] Unit tests with a stubbed HTTP client and a fixture tarball; never
+      hit the network in tests.
+
+**Deliverable**: PR.
+
+## Open questions the roadmap should keep asking itself
+
+Self-posed questions, kept here so future tasks inherit them. Promote to a
+task when the answer is "yes, and it is worth a PR".
+
+- Can we manage skill installation across ALL harnesses, not just detect
+  them? (Answered: yes, that is T7.)
+- Should adev browse external registries? (Answered: yes for skills.sh,
+  that is T8. Others, like plugin marketplaces on GitHub, can reuse the
+  registry interface.)
+- Updates: once a skill is installed from skills.sh, how do we know it is
+  outdated? A registry hash/version check in `adev doctor` (T3) or a
+  `--check-updates` flag could cover it. Candidate T9.
+- Security: third-party skills are prompts executed by your agent. Should
+  T8 show a diff/preview and require explicit confirm before install
+  (never auto-install)? Lean yes: preview-first is already the TUI habit.
+- Drift repair: T2 detects drifted duplicates; should there be a "make all
+  copies match this one" action (the write half of T2, powered by T7's
+  copier)?
+- Publishing: should `adev` help publish a local skill TO skills.sh
+  (leaderboard indexes public GitHub repos, so this is "push to a public
+  repo + register")? Probably post-v1.
+
 ## Dependency and conflict map
 
 | Task | Depends on | Conflict-prone areas        |
@@ -231,7 +305,9 @@ product itself.
 | T4   | T3 (+T2)   | new pkg, `tui`              |
 | T5   | none       | `discovery` core            |
 | T6   | T1, T5     | new pkg                     |
+| T7   | T5 (+T2)   | `manage`/adapters, `cli`, `tui` |
+| T8   | T7         | new pkg, `cli`, new view    |
 
 Suggested waves: **wave 1** = T0, T1, T2, T3 in parallel (low overlap);
-**wave 2** = T4, T5; **wave 3** = T6. Rebase on the base branch between
-waves.
+**wave 2** = T4, T5; **wave 3** = T6, T7; **wave 4** = T8. Rebase on the
+base branch between waves.
