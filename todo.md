@@ -244,7 +244,7 @@ duplicate story: T2 detects the copies, T7 creates them on purpose.
 
 **Deliverable**: PR.
 
-### T8: skills.sh registry explorer  [status: open, depends: T7]
+### T8: skills.sh registry explorer  [status: in-pr, depends: T7]
 
 **Why**: skills.sh (Vercel Labs) is becoming the npm of agent skills: a
 public directory + leaderboard with install counts across 20+ agents. adev
@@ -252,22 +252,22 @@ already manages what is on disk; the missing half is discovering and pulling
 what is not. A built-in explorer closes the loop: search the registry,
 inspect a skill, install it into any harness, all without leaving adev.
 
-- [ ] `internal/registry`: client for the public JSON API
+- [x] `internal/registry`: client for the public JSON API
       (`GET https://www.skills.sh/api/search?q=<query>` returns
       `{skills: [{skillId, name, installs, source}]}` where `source` is a
       GitHub `owner/repo`). Verified working 2026-07-10. Keep the client
       behind an interface so other registries can plug in later.
-- [ ] Skill fetch: download the source repo (shallow git clone or GitHub
+- [x] Skill fetch: download the source repo (shallow git clone or GitHub
       codeload tarball, no npm/npx dependency, adev stays self-contained),
       locate the skill dir by its SKILL.md, hand it to T7's InstallSkill.
-- [ ] CLI: `adev search <query> [--json]` and
+- [x] CLI: `adev search <query> [--json]` and
       `adev skill install <owner/repo/skill-id> --from-registry` (exact
       flag shape can be refined in the PR).
-- [ ] TUI: a registry view (`6 explore`): search input (footer-input
+- [x] TUI: a registry view (`6 explore`): search input (footer-input
       pattern), result list showing name, source and install count, detail
       page with the fetched SKILL.md preview, and `i` to install via the
       T7 harness picker.
-- [ ] Unit tests with a stubbed HTTP client and a fixture tarball; never
+- [x] Unit tests with a stubbed HTTP client and a fixture tarball; never
       hit the network in tests.
 
 **Deliverable**: PR.
@@ -287,7 +287,10 @@ task when the answer is "yes, and it is worth a PR".
   `--check-updates` flag could cover it. Candidate T9.
 - Security: third-party skills are prompts executed by your agent. Should
   T8 show a diff/preview and require explicit confirm before install
-  (never auto-install)? Lean yes: preview-first is already the TUI habit.
+  (never auto-install)? (Answered: yes, T8 ships it: the CLI prints the
+  fetched SKILL.md and asks y/N (--yes for scripts, refused non-interactive
+  without it), and the TUI only accepts `i` after the preview, then still
+  confirms.)
 - Drift repair: T2 detects drifted duplicates; should there be a "make all
   copies match this one" action (the write half of T2, powered by T7's
   copier)?

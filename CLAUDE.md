@@ -24,7 +24,7 @@ make install     # go install ./cmd/adev
 make release     # cross-compile all targets into dist/ (the release workflow runs this)
 make e2e         # pty e2e suite for the TUI (requires `expect`); E2E=<name> runs one test
 go build ./...   # compile
-go test ./...    # unit tests (cli, clean, discovery, doctor, harness, manage, tui)
+go test ./...    # unit tests (cli, clean, discovery, doctor, harness, manage, registry, tui)
 go vet ./...     # static checks
 gofmt -l .       # formatting check (empty output = clean)
 go doc ./internal/scaffolding   # browse package docs
@@ -53,7 +53,9 @@ internal/cli/               Boundary: every invocation is a Command that parses
   doctor.go                 doctorCmd: the health report over internal/doctor (--json).
   clean.go                  cleanCmd: removal candidates via internal/clean (--json, --apply).
   rm.go                     rmCmd: guarded delete of an artifact or config dir.
-  skill.go                  skillCmd: cross-harness skill install (--harness all fan-out).
+  skill.go                  skillCmd: cross-harness skill install (--harness all fan-out;
+                            --from-registry fetches from skills.sh, preview + confirm).
+  search.go                 searchCmd: query the skills.sh registry (--json).
   plugin.go                 pluginCmd: install/enable/disable/uninstall via the claude CLI.
   marketplace.go            marketplaceCmd: marketplace add/remove via the claude CLI.
   export.go                 exportCmd: snapshot the discovered setup to an adevfile.
@@ -79,6 +81,9 @@ internal/discovery/         Discovery domain core (shared by CLI and TUI).
   compat.go                 Deprecated ReadClaudeRegistry shim over the Claude adapter.
   hash.go                   Content hashes per artifact dir, behind drift detection.
   aggregate.go              Cross-path grouping (SkillGroup, PluginGroup, ...) + DriftState.
+internal/registry/          The skills.sh registry client (see "How the registry explorer works").
+  registry.go               Client interface, search API, ParseRef; env-overridable base URLs.
+  fetch.go                  Codeload tarball download + hardened extraction + skill location.
 internal/doctor/            Health checks: finding model + skill checks + adapter validators.
 internal/clean/             Removal candidates (stale caches, orphans, dead marketplaces,
                             broken artifacts) built on discovery + doctor; Apply removes one.
@@ -94,6 +99,7 @@ internal/tui/               The lazygit-style dashboard (Bubble Tea).
   tui.go                    Root model: state machine (intro -> dashboard), global keys.
   intro.go                  The logo decode animation.
   dashboard.go              Views, navigation, root input, confirm + actions.
+  explore.go                The explore view: registry search, fetch preview, gated install.
   previews.go               Preview/detail content for every selectable item.
   styles.go                 Lipgloss styles on the brand palette.
 internal/brand/             The shared color palette.
@@ -101,6 +107,8 @@ skills/                     Bundled skills, embedded via //go:embed.
   skills.go                 Embed + Install into a harness skills dir.
   adev-cli/, adev-skill-builder/, adev-plugin-builder/, adev-plugin-marketplace-builder/
 e2e/                        pty e2e suite for the TUI (expect); see "How the e2e suite works".
+  stub/                     The fake skills.sh: a static file server the suite points
+                            the registry env overrides at.
 ```
 
 ### How the CLI is organized
@@ -258,25 +266,51 @@ free of the mutation layer, and a nil seam (bare package use) classifies
 missing skills as manual. Extras are reported, never deleted; the exit code
 is diff-style (0 in sync, 1 otherwise).
 
+### How the registry explorer works
+
+`internal/registry` talks to skills.sh, the public directory of agent skills:
+`Search(query)` hits its JSON API and `FetchSkill` downloads the result's
+source repo as a GitHub codeload tarball (stdlib only, no git or npx), then
+locates the skill dir by its SKILL.md frontmatter name (falling back to a
+folder named like the skillId). The client hides behind `registry.Client` so
+other registries can plug in, and both base URLs are overridable via
+`ADEV_REGISTRY_URL` / `ADEV_REGISTRY_TARBALL_URL`, so tests and the e2e suite
+never touch the network. Extraction is hardened: entries with absolute paths
+or ".." traversal abort, symlinks/hardlinks are never materialized, and the
+decompressed size is capped.
+
+The security stance is binding: a third-party skill is a prompt the user's
+agent will execute, so nothing installs blind. `adev search` finds skills;
+`adev skill install <owner/repo/skill-id> --from-registry` prints the fetched
+SKILL.md and asks y/N on a terminal (`--yes` for scripts; without a terminal
+and without `--yes` it refuses; `--json` requires `--yes` and carries the
+SKILL.md in the report). The TUI's explore view only accepts `i` after the
+fetched SKILL.md was opened, and the picked target still confirms with y/N.
+The install itself goes through manage's `InstallSkillInto`, inheriting its
+validation, hash verification and overwrite refusal.
+
 ### How the TUI works
 
 `internal/tui` is a Bubble Tea program with a root model that owns the screen
 and delegates to one sub-model per state: the intro animation, then the
 dashboard. The dashboard (`dashboard.go`) is a single model holding:
 
-- **Views 1-5** (paths / skills / plugins / marketplaces / doctor), switched
-  with the number keys. The paths view drills into a config dir on enter;
-  enter again opens a full-screen detail page. The marketplaces view drills
-  into a catalog with `i` (and installs the selected entry with `i` again).
-  Group rows carry the drift badge (`=` identical, `≠` drifted). The doctor
-  view lists findings with fix-hint detail pages, and `c` flips it to the
-  clean candidates, where `d` removes the selection after a y/n confirm.
+- **Views 1-6** (paths / skills / plugins / marketplaces / doctor / explore),
+  switched with the number keys. The paths view drills into a config dir on
+  enter; enter again opens a full-screen detail page. The marketplaces view
+  drills into a catalog with `i` (and installs the selected entry with `i`
+  again). Group rows carry the drift badge (`=` identical, `≠` drifted). The
+  doctor view lists findings with fix-hint detail pages, and `c` flips it to
+  the clean candidates, where `d` removes the selection after a y/n confirm.
+  The explore view (`explore.go`) searches skills.sh with `/`, fetches a
+  result's SKILL.md on enter, and installs with `i` only after that preview
+  (picker + y/n confirm); offline it degrades to a status-line error.
   `previews.go` builds the content shared by the right preview panel and the
   detail pages.
 - **Modes**: normal navigation, the footer input line (`o` changes the scan
-  root, `a` adds a marketplace from a source), and the confirm prompt (`d`
-  asks y/n; deleting a whole config dir demands its name typed back). `t`
-  toggles an installed plugin without confirm.
+  root, `a` adds a marketplace from a source, `/` collects a registry query),
+  and the confirm prompt (`d` asks y/n; deleting a whole config dir demands
+  its name typed back). `t` toggles an installed plugin without confirm.
 - **Async work**: scans and mutations run off the update loop as `tea.Cmd`s;
   a finished mutation always triggers a rescan of the current root.
 
@@ -291,7 +325,10 @@ The TUI is exercised end to end in real pseudo-terminals: `make e2e` runs
 every flow in `e2e/*.exp` through `expect` against a throwaway fixture home
 (`e2e/fixture.sh`), so the real config is never touched. `make e2e E2E=<name>`
 runs one flow; `E2E_VERBOSE=1` prints the raw pty stream; a failing test keeps
-its fixture dir and the `ADEV_TUI_LOG` key trace.
+its fixture dir and the `ADEV_TUI_LOG` key trace. run.sh also starts a fake
+skills.sh per test (`e2e/stub`, a static file server over the fixture's
+`registry/` tree) and points `ADEV_REGISTRY_URL` / `ADEV_REGISTRY_TARBALL_URL`
+at it, so the explore flow never reaches the network.
 
 The rules live in `e2e/lib/harness.tcl` and are non-negotiable when writing
 tests: event-driven awaits only (never sleep-then-send: keys sent before raw

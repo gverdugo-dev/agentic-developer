@@ -27,6 +27,10 @@ that shows every artifact on your machine and lets you act on it.
 - **Cross-harness skill install**: `adev skill install` (and the TUI's `c`)
   copies a skill into another harness's skills dir, or into every harness
   present, with frontmatter validation and a hash-verified copy.
+- **Registry explorer**: `adev search` queries the skills.sh public registry,
+  and `adev skill install <owner/repo/skill-id> --from-registry` (or the TUI's
+  `6 explore` view) fetches a skill's source repo and installs it, always
+  showing its SKILL.md and asking for explicit confirmation first.
 - **Health checks**: `adev doctor` reports broken artifacts (missing or invalid
   manifests, ghost plugins, dead marketplace sources) with fix hints.
 - **Cleanup**: `adev clean` lists the removable dead weight (stale cached
@@ -159,7 +163,7 @@ adev new skill my-new-skill --force
 Running `adev` with no arguments on a terminal opens the dashboard (the lazygit
 model: the bare binary is the interactive tool). It scans the directory you
 started it in, always adds your home config dirs (`~/.claude`, `~/.codex`,
-`~/.opencode`), and browses the results in five views:
+`~/.opencode`), and browses the results in six views:
 
 | View               | Shows                                                        |
 | ------------------ | ------------------------------------------------------------ |
@@ -168,22 +172,24 @@ started it in, always adds your home config dirs (`~/.claude`, `~/.codex`,
 | `3` plugins        | every plugin identity (`name@marketplace`), grouped          |
 | `4` marketplaces   | every registered marketplace, grouped by name                |
 | `5` doctor         | every doctor finding, with a fix hint on its detail page; `c` flips to the removable clean candidates |
+| `6` explore        | the skills.sh registry: `/` searches, enter fetches a result's SKILL.md, `i` installs it |
 
 The left panel is the browse list, the right panel previews the selection, and
 enter opens a full-screen detail page. Keys:
 
 | Key             | Action                                                         |
 | --------------- | -------------------------------------------------------------- |
-| `1`-`5`         | switch view                                                    |
+| `1`-`6`         | switch view                                                    |
 | `j`/`k`, arrows | move the selection (or scroll the focused panel / open page)   |
 | `tab`, `h`/`l`  | switch focus between the list and the preview panel            |
 | `enter`         | drill into a config dir, or open the detail page               |
 | `esc`           | close the page / leave the drill                               |
 | `o`             | change the scan root (footer input; absolute path, `~` works)  |
+| `/`             | explore: search the skills.sh registry (footer input)          |
 | `d`             | delete the selection (y/n; config dirs demand the typed name)  |
 | `t`             | enable/disable the selected installed plugin                   |
 | `c`             | skill rows: copy to another harness (footer picker; enter runs it); doctor: list the clean candidates |
-| `i`             | marketplaces: open the catalog; on a catalog entry, install it |
+| `i`             | marketplaces: open the catalog; on a catalog entry, install it; explore: install the previewed skill (picker, then y/n) |
 | `a`             | marketplaces: add a marketplace from a source (footer input)   |
 | `q`, `ctrl+c`   | quit                                                           |
 
@@ -224,6 +230,16 @@ adev rm /abs/path/.claude/skills/old-skill
 # existing skill is only overwritten with --force
 adev skill install ~/.claude/skills/my-skill --harness codex
 adev skill install my-skill --harness all --scope user
+
+# Search the skills.sh public registry (each result is a reference)
+adev search changelog --json
+
+# Install a registry skill: adev downloads the source repo (GitHub tarball,
+# no git needed), shows you its SKILL.md and asks for confirmation before
+# anything lands. --yes skips the prompt for scripts; without a terminal the
+# install is refused unless --yes is passed. Never installed blind.
+adev skill install vercel-labs/skills/find-skills --from-registry
+adev skill install vercel-labs/skills/find-skills --from-registry --harness all --yes
 
 # Install, toggle or uninstall a plugin (delegated to the claude CLI)
 adev plugin install personal@gonzaloverdugo
