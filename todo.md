@@ -99,7 +99,7 @@ recipe by hand.
 
 ## Tasks
 
-### T0: committed e2e harness + docs refresh  [status: in-pr]
+### T0: committed e2e harness + docs refresh  [status: done]
 
 **Why**: the pty e2e flows that verified the TUI live outside the repo, so
 no one else can run or extend them; and README.md/CLAUDE.md still describe
@@ -115,7 +115,7 @@ only the scaffolder, which misleads every human and agent that reads them.
 
 **Deliverable**: PR whose harness runs green in a fresh clone.
 
-### T1: install plugins + add marketplaces  [status: in-pr]
+### T1: install plugins + add marketplaces  [status: done]
 
 **Why**: closes the management surface. adev can already inspect, delete,
 toggle and uninstall, but the acquisition half (install a plugin, register a
@@ -134,7 +134,7 @@ marketplace) still requires using the claude CLI by hand, which breaks the
 
 **Deliverable**: PR.
 
-### T2: duplicate detection with content hash + drift  [status: in-pr]
+### T2: duplicate detection with content hash + drift  [status: done]
 
 **Why**: the same skill copied across N config dirs is the most common mess
 in real setups, and the dangerous case is copies that diverged silently.
@@ -152,7 +152,7 @@ drifted one.
 
 **Deliverable**: PR.
 
-### T3: adev doctor  [status: in-pr]
+### T3: adev doctor  [status: done]
 
 **Why**: broken artifacts fail silently at runtime: a skill without
 `SKILL.md` never triggers, a plugin enabled in settings but missing from the
