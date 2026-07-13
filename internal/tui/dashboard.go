@@ -1649,9 +1649,9 @@ func (m dashModel) catalogRowLabel(i, budget int, style lipgloss.Style) string {
 	name := names[i]
 	if m.isInstalled(name + "@" + m.markets[m.marketParent].Name) {
 		mark := "✓"
-		return style.Render(truncateTail(name, budget-lipgloss.Width(mark)-1)) + " " + itemMutedStyle.Render(mark)
+		return style.Render(truncateHead(name, budget-lipgloss.Width(mark)-1)) + " " + itemMutedStyle.Render(mark)
 	}
-	return style.Render(truncateTail(name, budget))
+	return style.Render(truncateHead(name, budget))
 }
 
 // drillRowLabel renders one artifact row of the drilled config dir, tagged
@@ -1678,7 +1678,7 @@ func (m dashModel) drillRowLabel(i, budget int, style lipgloss.Style) string {
 		tag, name = "m", dir.Marketplaces[ref.index].Name
 	}
 
-	return itemMutedStyle.Render(tag+" ") + style.Render(truncateTail(name, budget-2))
+	return itemMutedStyle.Render(tag+" ") + style.Render(truncateHead(name, budget-2))
 }
 
 // groupRow renders "name ×N" fitted to budget cells, plus the content badge
@@ -1689,7 +1689,7 @@ func groupRow(name string, locations int, drift discovery.DriftState, budget int
 	if badge := driftBadge(drift); badge != "" {
 		suffix += " " + badge
 	}
-	return style.Render(truncateTail(name, budget-lipgloss.Width(suffix))) + suffix
+	return style.Render(truncateHead(name, budget-lipgloss.Width(suffix))) + suffix
 }
 
 // viewDetail renders the right panel: the preview of the current selection,

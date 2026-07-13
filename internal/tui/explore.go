@@ -186,8 +186,18 @@ func (m dashModel) exploreRowLabel(i, budget int, style lipgloss.Style) string {
 		return ""
 	}
 	s := m.exploreResults[i]
-	suffix := " " + itemMutedStyle.Render(fmt.Sprintf("%s %d", s.Source, s.Installs))
-	return style.Render(truncateTail(s.Name, budget-lipgloss.Width(suffix))) + suffix
+	installs := fmt.Sprintf("%d", s.Installs)
+	// installs is the sort key and always shown; the skill name comes next in
+	// full (its head is what identifies it); the source repo takes whatever
+	// room is left, truncated from its head so its ".../repo" tail stays read-
+	// able ("…s/agent-skills" rather than clipping the skill name).
+	name := truncateHead(s.Name, budget-lipgloss.Width(installs)-1)
+	rest := budget - lipgloss.Width(name) - lipgloss.Width(installs) - 2
+	mid := ""
+	if rest >= 1 {
+		mid = truncateTail(s.Source, rest) + " "
+	}
+	return style.Render(name) + " " + itemMutedStyle.Render(mid+installs)
 }
 
 // cleanupFetched removes the temp extraction roots of this session's
