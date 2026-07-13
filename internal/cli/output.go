@@ -1,22 +1,11 @@
 package cli
 
 import (
+	"agentic-developer/internal/brand"
 	"fmt"
 	"os"
 
 	"github.com/charmbracelet/lipgloss"
-)
-
-// Brand palette (from the project's report.css): blue is the primary accent,
-// blue-dark titles headings, teal is the secondary accent used for success.
-// There is no brand red, so errors keep a semantic red. Truecolor hex values
-// are downsampled by termenv on terminals with a smaller color profile.
-const (
-	brandBlue     = lipgloss.Color("#1a75bb")
-	brandBlueDark = lipgloss.Color("#06538e")
-	brandTeal     = lipgloss.Color("#5dc9be")
-	errorRed      = lipgloss.Color("#d64550")
-	grey          = lipgloss.Color("245")
 )
 
 // Two renderers bound to the actual output streams so lipgloss detects each
@@ -28,14 +17,18 @@ var (
 	errRenderer = lipgloss.NewRenderer(os.Stderr)
 
 	// stdout styles.
-	titleStyle   = outRenderer.NewStyle().Bold(true).Foreground(brandBlueDark)
-	commandStyle = outRenderer.NewStyle().Bold(true).Foreground(brandBlue)
-	accentStyle  = outRenderer.NewStyle().Foreground(brandBlue)
-	mutedStyle   = outRenderer.NewStyle().Foreground(grey)
-	successStyle = outRenderer.NewStyle().Bold(true).Foreground(brandTeal)
+	titleStyle   = outRenderer.NewStyle().Bold(true).Foreground(brand.BlueDark)
+	commandStyle = outRenderer.NewStyle().Bold(true).Foreground(brand.Blue)
+	accentStyle  = outRenderer.NewStyle().Foreground(brand.Blue)
+	mutedStyle   = outRenderer.NewStyle().Foreground(brand.Grey)
+	successStyle = outRenderer.NewStyle().Bold(true).Foreground(brand.Teal)
+	dangerStyle  = outRenderer.NewStyle().Foreground(brand.Red)
+	// Finding marks for the doctor report, on stdout (RenderError owns stderr).
+	errorMarkStyle = outRenderer.NewStyle().Bold(true).Foreground(brand.Red)
+	warnMarkStyle  = outRenderer.NewStyle().Bold(true).Foreground(brand.Amber)
 
 	// stderr styles.
-	errorStyle = errRenderer.NewStyle().Bold(true).Foreground(errorRed)
+	errorStyle = errRenderer.NewStyle().Bold(true).Foreground(brand.Red)
 )
 
 // accent styles a value the eye should land on: an artifact name, a harness, a
@@ -44,6 +37,16 @@ func accent(s string) string { return accentStyle.Render(s) }
 
 // muted styles secondary detail, like a filesystem path.
 func muted(s string) string { return mutedStyle.Render(s) }
+
+// danger styles a detail that needs the user's attention on stdout, like a
+// drifted duplicate.
+func danger(s string) string { return dangerStyle.Render(s) }
+
+// errorMark styles the error tag of a doctor finding.
+func errorMark(s string) string { return errorMarkStyle.Render(s) }
+
+// warnMark styles the warning tag of a doctor finding.
+func warnMark(s string) string { return warnMarkStyle.Render(s) }
 
 // command styles a CLI subcommand word in help output.
 func command(s string) string { return commandStyle.Render(s) }

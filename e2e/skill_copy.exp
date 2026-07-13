@@ -1,0 +1,58 @@
+# skill_copy.exp: the copy-to-harness picker, checked against the disk.
+#
+# Flow: with a second harness dir (.codex) in the fake home, "c" on a skill
+# row of the skills view opens the footer picker; enter copies the skill into
+# the first target (~/.codex) and it lands on disk. Then on another skill the
+# picker is cycled to the fan-out entry, which copies into every listed
+# config dir at once.
+
+source [file join [file dirname [info script]] lib harness.tcl]
+
+# A second harness config dir in the fake home gives the picker real targets.
+# It must exist before boot so the initial scan already lists it.
+file mkdir [file join $env(E2E_HOME) .codex skills]
+
+boot
+
+step "initial scan done: home/.claude, home/.codex and alpha-root/.claude"
+await "1/3"
+
+step "skills view; doomed-skill sorts first and is selected"
+send "2"
+await "1/33"
+
+step "c opens the copy picker on the first target (~/.codex)"
+send "c"
+await "copy doomed-skill to"
+
+step "enter copies it there and the status confirms"
+send "\r"
+# The status names the target dir, but its abbreviation depends on how the
+# temp home path is spelled, so the stable prefix is the marker.
+await "copied doomed-skill to"
+if {![file isfile [file join $env(E2E_HOME) .codex skills doomed-skill SKILL.md]]} {
+    fail "doomed-skill did not land in home/.codex"
+}
+
+step "select home-skill and open the picker again"
+send "j"
+await "2/33"
+send "c"
+await "copy home-skill to"
+
+step "cycling backwards wraps to the fan-out entry"
+send "k"
+await "all 2 config dirs"
+
+step "enter fans the copy out to both targets"
+send "\r"
+await "copied home-skill to all 2 config dirs"
+if {![file isfile [file join $env(E2E_HOME) .codex skills home-skill SKILL.md]]} {
+    fail "home-skill did not land in home/.codex"
+}
+if {![file isfile [file join $env(E2E_ROOT) .claude skills home-skill SKILL.md]]} {
+    fail "home-skill did not land in alpha-root/.claude"
+}
+
+quit
+step "ok"

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"agentic-developer/internal/brand"
 	"agentic-developer/internal/scaffolding"
 	"fmt"
 	"os"
@@ -123,9 +124,9 @@ func validateArtifactName(name string) error {
 // matches the styled output: blue for focus, teal for the selected option.
 func brandTheme() *huh.Theme {
 	t := huh.ThemeBase()
-	t.Focused.Title = t.Focused.Title.Foreground(brandBlue).Bold(true)
-	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(brandBlue)
-	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(brandTeal)
-	t.Focused.FocusedButton = t.Focused.FocusedButton.Background(brandBlue)
+	t.Focused.Title = t.Focused.Title.Foreground(brand.Blue).Bold(true)
+	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(brand.Blue)
+	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(brand.Teal)
+	t.Focused.FocusedButton = t.Focused.FocusedButton.Background(brand.Blue)
 	return t
 }

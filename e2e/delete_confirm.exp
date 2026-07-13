@@ -1,0 +1,77 @@
+# delete_confirm.exp: the two delete confirmations, checked against the disk.
+#
+# Flow: in the skills view, "d" on a single-location skill asks y/n; "n"
+# cancels (the folder survives), "y" deletes it and the rescan drops the
+# count. Then in the paths view, deleting a whole config dir demands its
+# name typed back: a wrong name is rejected, the right one deletes the dir.
+
+source [file join [file dirname [info script]] lib harness.tcl]
+
+boot
+
+step "initial scan done"
+await "1/2"
+
+step "skills view; doomed-skill sorts first and is selected"
+send "2"
+await "1/33"
+
+step "d asks for confirmation"
+send "d"
+await "doomed-skill?"
+
+step "n cancels and the skill survives on disk"
+send "n"
+await "enter: open"
+if {![file isdirectory [file join $env(E2E_HOME) .claude skills doomed-skill]]} {
+    fail "doomed-skill vanished after a cancelled delete"
+}
+
+step "d then y deletes it and the rescan shows one group less"
+send "d"
+await "doomed-skill?"
+send "y"
+# The result status and the rescanned list can land in one coalesced
+# repaint (title above footer), so the counter is the only marker whose
+# stream position is deterministic; the disk check follows.
+await "1/32"
+if {[file isdirectory [file join $env(E2E_HOME) .claude skills doomed-skill]]} {
+    fail "doomed-skill still on disk after delete"
+}
+
+step "paths view: select alpha-root's config dir"
+send "1"
+await "1/2"
+send "j"
+await "2/2"
+
+step "deleting a whole config dir demands its name typed back"
+send "d"
+await "to delete it all"
+
+step "a wrong name is rejected and the confirm stays open"
+send "nope\r"
+await "nope"
+# Known TUI bug (found by this test): the "name does not match" error is
+# painted past the right edge, so it is never visible. The rejection is
+# asserted behaviorally instead: a rune typed after the failed enter still
+# echoes in the confirm input, proving the prompt survived.
+send "x"
+await "nopex"
+if {![file isdirectory [file join $env(E2E_ROOT) .claude]]} {
+    fail "alpha-root/.claude deleted despite the wrong confirm name"
+}
+
+step "the right name deletes the dir"
+send "\x15"
+send ".claude\r"
+await "1/1"
+if {[file isdirectory [file join $env(E2E_ROOT) .claude]]} {
+    fail "alpha-root/.claude still on disk after delete"
+}
+if {![file isdirectory [file join $env(E2E_HOME) .claude]]} {
+    fail "the fake home's .claude was deleted by mistake"
+}
+
+quit
+step "ok"

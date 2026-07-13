@@ -47,6 +47,32 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// HarnessForMarker returns the harness a config-dir name identifies
+// (".claude" resolves to Claude), and whether the name is a known marker. It
+// is the reverse lookup of harnessMarkers, shared so other packages (like the
+// discovery scanner) recognize config dirs from the same single source of
+// truth.
+func HarnessForMarker(name string) (AIHarness, bool) {
+	for _, h := range detectionOrder {
+		if harnessMarkers[h] == name {
+			return h, true
+		}
+	}
+	return 0, false
+}
+
+// MarkerFor returns the config-dir name that identifies harness h (Claude
+// resolves to ".claude").
+func MarkerFor(h AIHarness) string {
+	return harnessMarkers[h]
+}
+
+// HarnessesInOrder returns the harnesses in their canonical priority order,
+// for callers that need deterministic iteration.
+func HarnessesInOrder() []AIHarness {
+	return detectionOrder
+}
+
 // artifactSubdir is the directory, inside the harness config dir, where each
 // artifact type is scaffolded.
 var artifactSubdir = map[Artifact]string{

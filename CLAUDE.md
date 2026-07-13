@@ -4,11 +4,13 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-`adev` (module `agentic-developer`) is a small Go CLI that scaffolds and removes
-AI coding-agent artifacts (skills, plugins, plugin-marketplaces) for a detected
-or explicit harness (Claude Code, Codex, opencode). It is self-contained: the
-folder layouts and its own bundled skills are embedded in the binary at build
-time, so a single binary carries everything it needs.
+`adev` (module `agentic-developer`) is a small Go CLI that scaffolds, discovers
+and manages AI coding-agent artifacts (skills, plugins, plugin-marketplaces)
+for a detected or explicit harness (Claude Code, Codex, opencode). Run bare on
+a terminal it opens a lazygit-style TUI over the same discovery and management
+engine the commands use. It is self-contained: the folder layouts and its own
+bundled skills are embedded in the binary at build time, so a single binary
+carries everything it needs.
 
 The opinionated approach to building skills and plugins lives in
 [PHILOSOPHY.md](PHILOSOPHY.md); read it before touching the bundled skills.
@@ -20,13 +22,17 @@ make build       # build ./bin/adev (version injected via -ldflags)
 make run         # build, then run
 make install     # go install ./cmd/adev
 make release     # cross-compile all targets into dist/ (the release workflow runs this)
+make e2e         # pty e2e suite for the TUI (requires `expect`); E2E=<name> runs one test
 go build ./...   # compile
+go test ./...    # unit tests (cli, clean, discovery, doctor, harness, manage, registry, tui)
 go vet ./...     # static checks
 gofmt -l .       # formatting check (empty output = clean)
 go doc ./internal/scaffolding   # browse package docs
 ```
 
-There are no unit tests yet; verify changes by building and running the CLI
+Before opening a PR, the whole battery must pass: `go build ./...`,
+`go vet ./...`, `gofmt -l .` (empty output), `go test ./...`, `make build`,
+plus `make e2e` whenever the TUI changed. For `setup` changes also verify
 against a temporary HOME (see "Verifying setup" below).
 
 ## Architecture
@@ -36,22 +42,73 @@ Three layers, raw args flow down through them:
 ```
 cmd/adev/main.go            Entry point: wires the program, owns the exit code.
 internal/cli/               Boundary: every invocation is a Command that parses
-                            its own flags and runs itself; Run dispatches.
+                            its own flags and runs itself; Run dispatches (and
+                            opens the TUI when called bare on a terminal).
   cli.go                    Command interface, the command registry, Run dispatch, help.
   output.go                 Styled user-facing output (lipgloss); degrades to plain text.
   interactive.go            huh form for `adev new` with no args on a terminal.
   scaffold_cmd.go           scaffoldCmd (new + delete): flag parsing + apply/remove.
+  scan.go                   scanCmd: discovery scan of a folder tree (--json).
+  list.go                   listCmd: grouped skills/plugins/marketplaces (--json, --duplicates).
+  doctor.go                 doctorCmd: the health report over internal/doctor (--json).
+  clean.go                  cleanCmd: removal candidates via internal/clean (--json, --apply).
+  rm.go                     rmCmd: guarded delete of an artifact or config dir.
+  skill.go                  skillCmd: cross-harness skill install (--harness all fan-out;
+                            --from-registry fetches from skills.sh, preview + confirm).
+  search.go                 searchCmd: query the skills.sh registry (--json).
+  plugin.go                 pluginCmd: install/enable/disable/uninstall via the claude CLI.
+  marketplace.go            marketplaceCmd: marketplace add/remove via the claude CLI.
+  export.go                 exportCmd: snapshot the discovered setup to an adevfile.
+  sync.go                   syncCmd: diff an adevfile against reality (--json, --apply).
+  wiring.go                 Fills adevfile.InstallSkill with manage's copier at init.
   setup.go                  setupCmd: install bundled skills into a harness.
   version.go                versionCmd + the ldflags-injected Version var.
   update.go                 updateCmd: self-update from the latest release.
-internal/scaffolding/       Domain core.
+internal/scaffolding/       Scaffolding domain core.
   types.go                  Typed model (AIHarness, Verb, Artifact, Scope) + Parse* validators.
   scaffold.go               Config load + ApplyConfig/RemoveConfig engine.
   utils.go                  Harness detection, placement, lookups.
   structures.json           Embedded folder layouts (//go:embed).
+internal/harness/           One adapter per AI harness (see "How harness adapters work").
+  harness.go                Adapter interface, shared types, the adapter registry.
+  claude.go                 Claude adapter: registry reader, manifests, claude CLI executor.
+  codex.go                  Codex adapter: skills + prompts, AGENTS.md awareness.
+  opencode.go               opencode adapter: skills + TS plugins, opencode.json awareness.
+internal/discovery/         Discovery domain core (shared by CLI and TUI).
+  discovery.go              Scan: the gitignore-aware walk; collection driven by adapters.
+  ignore.go                 Default ignore list + scoped .gitignore matching.
+  meta.go                   SKILL.md frontmatter parsing (the standard every harness shares).
+  compat.go                 Deprecated ReadClaudeRegistry shim over the Claude adapter.
+  hash.go                   Content hashes per artifact dir, behind drift detection.
+  aggregate.go              Cross-path grouping (SkillGroup, PluginGroup, ...) + DriftState.
+internal/registry/          The skills.sh registry client (see "How the registry explorer works").
+  registry.go               Client interface, search API, ParseRef; env-overridable base URLs.
+  fetch.go                  Codeload tarball download + hardened extraction + skill location.
+internal/doctor/            Health checks: finding model + skill checks + adapter validators.
+internal/clean/             Removal candidates (stale caches, orphans, dead marketplaces,
+                            broken artifacts) built on discovery + doctor; Apply removes one.
+internal/manage/            Mutations on discovered resources.
+  manage.go                 DeleteArtifact: guarded filesystem deletes.
+  claude.go                 Plugin/marketplace helpers forwarding to the Claude adapter.
+  skill.go                  InstallSkill*: hash-verified skill copies into any harness.
+internal/adevfile/          The manifest (adevfile.json): reproducible setups.
+  adevfile.go               Schema (per-harness, per-scope) + validating parser.
+  export.go                 FromScan: manifest from the discovered reality.
+  sync.go                   Diff/Apply engine + the InstallSkill seam cli wires.
+internal/tui/               The lazygit-style dashboard (Bubble Tea).
+  tui.go                    Root model: state machine (intro -> dashboard), global keys.
+  intro.go                  The logo decode animation.
+  dashboard.go              Views, navigation, root input, confirm + actions.
+  explore.go                The explore view: registry search, fetch preview, gated install.
+  previews.go               Preview/detail content for every selectable item.
+  styles.go                 Lipgloss styles on the brand palette.
+internal/brand/             The shared color palette.
 skills/                     Bundled skills, embedded via //go:embed.
   skills.go                 Embed + Install into a harness skills dir.
   adev-cli/, adev-skill-builder/, adev-plugin-builder/, adev-plugin-marketplace-builder/
+e2e/                        pty e2e suite for the TUI (expect); see "How the e2e suite works".
+  stub/                     The fake skills.sh: a static file server the suite points
+                            the registry env overrides at.
 ```
 
 ### How the CLI is organized
@@ -112,6 +169,173 @@ user's config (home), never the project, writing to `~/.<harness>/skills/`. It
 overwrites adev's own skill files (so re-running is an update) but never deletes
 the skills directory or touches other skills. There is no pruning of files
 removed from the bundle.
+
+### How harness adapters work
+
+`internal/harness` makes every harness a first-class citizen behind one
+`Adapter` interface: the marker dir that identifies it, which artifact kinds
+live in which containers, its instruction files, a registry reader (where the
+harness has one), manifest validators, and an operation executor (where a CLI
+owns the registry). The adapter registry (`All`, `ForID`, `ForMarker`)
+preserves the detection priority (claude, codex, opencode). Discovery, the
+doctor and the TUI consume adapters and never branch on a concrete harness,
+so supporting a new harness (gemini-cli, cursor) is implementing `Adapter`
+and appending it to the list.
+
+Adapters are honest about capability: Claude is the deep one (registry,
+enabled state, cache, claude CLI operations via the stubbable
+`harness.ClaudeExec`); Codex has skills, a prompts folder and AGENTS.md;
+opencode has skills, TypeScript plugins (package.json metadata, index.ts
+entry check) and opencode.json. Neither of the last two fakes a registry or
+operations it does not have.
+
+### How discovery works
+
+`discovery.Scan(root)` walks the tree under root looking for harness config
+dirs (`.claude`, `.codex`, `.opencode`) and summarizes what lives in each,
+collecting exactly the containers the dir's adapter declares: skills (with
+SKILL.md frontmatter), plugins, marketplaces, prompt files and instruction
+docs. Rules:
+
+- The walk respects the same boundaries git does: an embedded default ignore
+  list applies everywhere, and each `.gitignore` applies to its own subtree.
+  Symlinks are never followed; unreadable dirs are skipped, not fatal.
+- A config dir is a leaf: it is collected and never descended into.
+- The user's home config dirs are always prepended to the results, whatever
+  the root, because user-level config applies to every project.
+- A harness with its own registry (Claude: `plugins/installed_plugins.json`,
+  `plugins/known_marketplaces.json`, `settings.json` enabledPlugins) prefers
+  it, the same data its `/plugins` screen shows; a missing or unparsable
+  registry falls back to the folder layout.
+
+`aggregate.go` regroups the per-dir results into the artifact-centric views
+(one group per skill name / plugin identity / marketplace name, each with its
+locations), which power the TUI's views 2-4 and `adev list`. Each artifact dir
+gets a stable content hash (`hash.go`: relative paths + file contents, walked
+deterministically), so a group knows its `DriftState`: copies identical
+everywhere, drifted (with a per-location differing-file count), single, or
+unknown. `adev list --duplicates` filters to multi-location groups.
+
+### How management works
+
+`internal/manage` executes every mutation, for both the TUI and the CLI:
+
+- `DeleteArtifact(path)` removes a directory only after validating it is
+  absolute, exists, and is a harness config dir or inside one; anything else
+  is refused, so adev can never be talked into deleting an arbitrary folder.
+- Plugin and marketplace operations (install/enable/disable/uninstall,
+  marketplace add/remove) forward to the Claude adapter's executor, which
+  shells out to the `claude` CLI: it owns the registry and its cache. Never
+  write those JSON files by hand. Tests stub `harness.ClaudeExec`.
+- `InstallSkillInto` (plus the `InstallSkill`/`InstallSkillAll` fronts)
+  copies a skill dir into a harness's skills container: SKILL.md frontmatter
+  is validated first, an existing skill is only replaced with force, and the
+  landed copy is verified against the source's content hash. It backs
+  `adev skill install`, the TUI's `c` picker, and `adev sync --apply`.
+
+`internal/doctor` is the read-only health layer: `doctor.Check(dirs)` runs
+the shared skill checks (missing/invalid SKILL.md or frontmatter, the
+200-line house cap) plus each adapter's validators (invalid manifests,
+enabled-but-not-installed plugins, cache/registry drift, dead marketplace
+directory sources, TS plugins without their entry point) and returns
+prioritized findings with fix hints. It powers `adev doctor` and the TUI's
+doctor view.
+
+`internal/clean` is the actuator on top: `clean.Collect(dirs, findings)`
+derives removal candidates (stale cached plugin versions keeping the
+installed one, orphaned cache folders, dead directory marketplaces, and the
+doctor findings whose remedy is removal), each with its reclaimable size and
+its removal action. `clean.Apply` executes one candidate: registry-owned
+entries go through the claude CLI, plain folders through `DeleteArtifact`.
+It powers `adev clean` (dry-run by default, `--apply` removes) and the TUI's
+clean list.
+
+### How the adevfile works
+
+`internal/adevfile` makes a setup reproducible: a JSON manifest
+(`adevfile.json`) declares, per harness and per scope (user/project), the
+skills, plugins (`name@marketplace`) and marketplaces (with add sources) that
+should exist. `adev export` builds one from the discovered reality
+(`FromScan`), and `adev sync` diffs it against reality (`Diff`) and applies
+the missing items (`Apply`): plugins and marketplaces go through the harness
+adapter's executor, skills through `adevfile.InstallSkill`, a function
+variable the cli package fills at init with manage's cross-harness copier
+(`internal/cli/wiring.go`), resolving the manifest name to a discovered
+skill dir. adevfile never imports manage: the seam keeps the manifest engine
+free of the mutation layer, and a nil seam (bare package use) classifies
+missing skills as manual. Extras are reported, never deleted; the exit code
+is diff-style (0 in sync, 1 otherwise).
+
+### How the registry explorer works
+
+`internal/registry` talks to skills.sh, the public directory of agent skills:
+`Search(query)` hits its JSON API and `FetchSkill` downloads the result's
+source repo as a GitHub codeload tarball (stdlib only, no git or npx), then
+locates the skill dir by its SKILL.md frontmatter name (falling back to a
+folder named like the skillId). The client hides behind `registry.Client` so
+other registries can plug in, and both base URLs are overridable via
+`ADEV_REGISTRY_URL` / `ADEV_REGISTRY_TARBALL_URL`, so tests and the e2e suite
+never touch the network. Extraction is hardened: entries with absolute paths
+or ".." traversal abort, symlinks/hardlinks are never materialized, and the
+decompressed size is capped.
+
+The security stance is binding: a third-party skill is a prompt the user's
+agent will execute, so nothing installs blind. `adev search` finds skills;
+`adev skill install <owner/repo/skill-id> --from-registry` prints the fetched
+SKILL.md and asks y/N on a terminal (`--yes` for scripts; without a terminal
+and without `--yes` it refuses; `--json` requires `--yes` and carries the
+SKILL.md in the report). The TUI's explore view only accepts `i` after the
+fetched SKILL.md was opened, and the picked target still confirms with y/N.
+The install itself goes through manage's `InstallSkillInto`, inheriting its
+validation, hash verification and overwrite refusal.
+
+### How the TUI works
+
+`internal/tui` is a Bubble Tea program with a root model that owns the screen
+and delegates to one sub-model per state: the intro animation, then the
+dashboard. The dashboard (`dashboard.go`) is a single model holding:
+
+- **Views 1-6** (paths / skills / plugins / marketplaces / doctor / explore),
+  switched with the number keys. The paths view drills into a config dir on
+  enter; enter again opens a full-screen detail page. The marketplaces view
+  drills into a catalog with `i` (and installs the selected entry with `i`
+  again). Group rows carry the drift badge (`=` identical, `≠` drifted). The
+  doctor view lists findings with fix-hint detail pages, and `c` flips it to
+  the clean candidates, where `d` removes the selection after a y/n confirm.
+  The explore view (`explore.go`) searches skills.sh with `/`, fetches a
+  result's SKILL.md on enter, and installs with `i` only after that preview
+  (picker + y/n confirm); offline it degrades to a status-line error.
+  `previews.go` builds the content shared by the right preview panel and the
+  detail pages.
+- **Modes**: normal navigation, the footer input line (`o` changes the scan
+  root, `a` adds a marketplace from a source, `/` collects a registry query),
+  and the confirm prompt (`d` asks y/n; deleting a whole config dir demands
+  its name typed back). `t` toggles an installed plugin without confirm.
+- **Async work**: scans and mutations run off the update loop as `tea.Cmd`s;
+  a finished mutation always triggers a rescan of the current root.
+
+Every operation added to the TUI must ship with its mirror command (with
+`--json` where it reports data), and vice versa; the shared logic lives in
+`discovery`/`manage`, never duplicated. `ADEV_TUI_LOG=<file>` routes the debug
+log (including every key received) to a file, since a TUI owns the terminal.
+
+### How the e2e suite works
+
+The TUI is exercised end to end in real pseudo-terminals: `make e2e` runs
+every flow in `e2e/*.exp` through `expect` against a throwaway fixture home
+(`e2e/fixture.sh`), so the real config is never touched. `make e2e E2E=<name>`
+runs one flow; `E2E_VERBOSE=1` prints the raw pty stream; a failing test keeps
+its fixture dir and the `ADEV_TUI_LOG` key trace. run.sh also starts a fake
+skills.sh per test (`e2e/stub`, a static file server over the fixture's
+`registry/` tree) and points `ADEV_REGISTRY_URL` / `ADEV_REGISTRY_TARBALL_URL`
+at it, so the explore flow never reaches the network.
+
+The rules live in `e2e/lib/harness.tcl` and are non-negotiable when writing
+tests: event-driven awaits only (never sleep-then-send: keys sent before raw
+mode arrive late and coalesced), answer the startup terminal queries (OSC 11,
+CSI 6n) or the app blocks, size the pty explicitly, and use markers that
+lipgloss renders as one styled segment. Extend the suite whenever the TUI
+changes.
 
 ## Release flow
 

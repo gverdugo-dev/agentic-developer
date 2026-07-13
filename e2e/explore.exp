@@ -1,0 +1,52 @@
+# explore.exp: the registry explorer, driven against the stub skills.sh.
+#
+# Flow: switch to the explore view (6), search "demo" through the footer
+# input, check the stub's result renders with its install count, open the
+# fetched SKILL.md preview with enter, then install with i: the picker picks
+# the first target (home/.claude), the y/N confirm approves it, and the
+# skill lands on the fixture home disk. run.sh points ADEV_REGISTRY_URL and
+# ADEV_REGISTRY_TARBALL_URL at the stub, so nothing touches the network.
+
+source [file join [file dirname [info script]] lib harness.tcl]
+
+boot
+
+step "explore view opens empty with the search hint"
+send "6"
+await "Explore"
+await "press / to search skills.sh"
+
+step "/ opens the footer search input"
+send "/"
+await "search skills.sh"
+
+step "searching demo renders the stub's result with its install count"
+send "demo\r"
+await "demo-skill"
+await "4242"
+
+step "enter fetches the tarball and opens the SKILL.md preview page"
+send "\r"
+await "Registry demo skill served by the e2e stub"
+
+step "esc closes the preview back to the result list"
+send "\x1b"
+await "/: search"
+
+step "i opens the install picker on the first target (home/.claude)"
+send "i"
+await "install demo-skill to"
+
+step "enter picks the target and the y/N confirm names the source"
+send "\r"
+await "install demo-skill (vercel-labs/demo) into"
+
+step "y installs; the status confirms and the skill lands on disk"
+send "y"
+await "installed demo-skill into"
+if {![file isfile [file join $env(E2E_HOME) .claude skills demo-skill SKILL.md]]} {
+    fail "demo-skill did not land in home/.claude"
+}
+
+quit
+step "ok"

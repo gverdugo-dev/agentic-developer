@@ -1,0 +1,43 @@
+# root_input.exp: the root input line ("o") and the rescan it triggers.
+#
+# Flow: open the input, clear the prefilled root, watch a relative path get
+# rejected, then point the scan at beta-root and see its results replace the
+# initial ones.
+
+source [file join [file dirname [info script]] lib harness.tcl]
+
+boot
+
+step "initial scan: fake home + alpha-root config dirs"
+await "1/2"
+await "2s 1p 1m"
+await "31s 0p 0m"
+
+step "o opens the root input prefilled with the current root"
+send "o"
+await "new root"
+
+step "ctrl+u clears it down to the placeholder"
+send "\x15"
+# The first placeholder char sits under the cursor, styled apart, so the
+# matchable placeholder text starts at its second char.
+await "absolute/path"
+
+step "a relative path is rejected"
+send "not-absolute"
+await "not-absolute"
+send "\r"
+await "path must be absolute"
+
+step "a valid absolute path rescans"
+send "\x15"
+# The first placeholder char sits under the cursor, styled apart, so the
+# matchable placeholder text starts at its second char.
+await "absolute/path"
+send -- $env(E2E_BETA)
+await "beta-root"
+send "\r"
+await "1s 0p 0m"
+
+quit
+step "ok"
