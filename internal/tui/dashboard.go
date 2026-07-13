@@ -1,0 +1,1846 @@
+package tui
+
+import (
+	"agentic-developer/internal/clean"
+	"agentic-developer/internal/discovery"
+	"agentic-developer/internal/doctor"
+	"agentic-developer/internal/manage"
+	"agentic-developer/internal/registry"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// dashPanel identifies the focusable panels of the dashboard.
+type dashPanel int
+
+// The panels, left to right.
+const (
+	panelPaths dashPanel = iota
+	panelDetail
+)
+
+// dashMode selects who owns the keyboard: normal navigation, or the root
+// input line at the bottom.
+type dashMode int
+
+// The dashboard modes.
+const (
+	modeNormal dashMode = iota
+	modeInput
+	modeConfirm
+	modePicker
+)
+
+// inputKind selects what the footer input line collects while the dashboard
+// is in modeInput: a new scan root ("o"), a marketplace source ("a"), or a
+// registry search query ("/" in the explore view).
+type inputKind int
+
+// The input purposes.
+const (
+	inputRoot inputKind = iota
+	inputMarketSource
+	inputExploreQuery
+)
+
+// actionKind is the mutation a pendingAction performs.
+type actionKind int
+
+// The supported actions.
+const (
+	actionDelete actionKind = iota
+	actionUninstall
+	actionRemoveMarket
+	actionToggle
+	actionInstall
+	actionAddMarket
+	actionCopySkill
+)
+
+// pendingAction is a mutation waiting for confirmation (or running). label
+// is what the footer shows; path feeds filesystem deletes (and is the source
+// dir of a skill copy); key feeds the claude CLI operations; targets are the
+// destination config dirs of a skill copy; confirmName, when set, must be
+// typed back to confirm (whole config dirs); prompt, when set, overrides the
+// confirm question (registry installs phrase their own).
+type pendingAction struct {
+	kind        actionKind
+	label       string
+	path        string
+	key         string
+	enable      bool     // actionToggle: the target state
+	targets     []string // actionCopySkill: the destination config dirs
+	confirmName string
+	prompt      string
+}
+
+// question phrases the confirm prompt for the action.
+func (a pendingAction) question() string {
+	if a.prompt != "" {
+		return a.prompt
+	}
+	switch a.kind {
+	case actionUninstall:
+		return "uninstall " + a.key + "?"
+	case actionRemoveMarket:
+		return "remove marketplace " + a.key + "?"
+	default:
+		return "delete " + abbreviateHome(a.path) + "?"
+	}
+}
+
+// actionResultMsg carries a finished mutation back into the program.
+type actionResultMsg struct {
+	label string
+	err   error
+}
+
+// runAction executes a confirmed mutation off the update loop.
+func runAction(a pendingAction) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		switch a.kind {
+		case actionDelete:
+			err = manage.DeleteArtifact(a.path)
+		case actionUninstall:
+			_, err = manage.UninstallPlugin(a.key)
+		case actionRemoveMarket:
+			_, err = manage.RemoveMarketplace(a.key)
+		case actionToggle:
+			_, err = manage.SetPluginEnabled(a.key, a.enable)
+		case actionInstall:
+			_, err = manage.InstallPlugin(a.key)
+		case actionAddMarket:
+			_, err = manage.AddMarketplace(a.key)
+		case actionCopySkill:
+			err = copySkillAction(a)
+		}
+		return actionResultMsg{label: a.label, err: err}
+	}
+}
+
+// copySkillAction copies the skill at a.path into every target config dir,
+// folding the per-target outcomes into one error (nil when every copy
+// landed). The TUI never forces: a target that already holds the skill is
+// reported, and the paths view is where a stale copy gets deleted first.
+func copySkillAction(a pendingAction) error {
+	var problems []string
+	for _, target := range a.targets {
+		result := manage.InstallSkillInto(a.path, target, false)
+		switch result.Status {
+		case manage.SkillSkipped:
+			problems = append(problems, abbreviateHome(target)+": already exists")
+		case manage.SkillFailed:
+			problems = append(problems, abbreviateHome(target)+": "+result.Err.Error())
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+// dashView selects which list the dashboard browses: the discovered config
+// dirs, one of the artifact-centric aggregations, the doctor findings, or
+// the skills.sh registry explorer. Switched with 1-6.
+type dashView int
+
+// The views, in tab order.
+const (
+	viewPathsTab dashView = iota
+	viewSkillsTab
+	viewPluginsTab
+	viewMarketsTab
+	viewDoctorTab
+	viewExploreTab
+)
+
+// viewNames labels the tabs, indexed by dashView.
+var viewNames = []string{"paths", "skills", "plugins", "marketplaces", "doctor", "explore"}
+
+// artifactKind tags an entry of a drilled config dir.
+type artifactKind int
+
+// The artifact kinds inside a config dir.
+const (
+	refSkill artifactKind = iota
+	refPlugin
+	refMarket
+)
+
+// artifactRef points at one artifact of the drilled config dir.
+type artifactRef struct {
+	kind  artifactKind
+	index int
+}
+
+// pickerTarget is one entry of the copy-target picker: a label for the
+// footer and the config dirs the entry copies into (one dir, or all of them
+// for the fan-out entry).
+type pickerTarget struct {
+	label string
+	dirs  []string
+}
+
+// pickerState is the open copy-to-harness picker: the skill being copied and
+// the targets the footer cycles through. fromRegistry marks a registry
+// install: the picked target then goes through an explicit y/N confirm
+// (never install a third-party skill blind), and source names the repo in
+// that prompt.
+type pickerState struct {
+	skillName    string
+	srcPath      string
+	targets      []pickerTarget
+	index        int
+	fromRegistry bool
+	source       string
+}
+
+// pageState is an open full-screen detail page, with its own scroll.
+type pageState struct {
+	title   string
+	content string // styled, unwrapped; wrapped at render time
+	offset  int
+}
+
+// scanResultMsg carries a finished discovery scan (and the doctor findings
+// and clean candidates computed over it) back into the program.
+type scanResultMsg struct {
+	root       string
+	dirs       []discovery.ConfigDir
+	findings   []doctor.Finding
+	candidates []clean.Candidate
+	err        error
+}
+
+// scanCmd runs a discovery scan off the update loop, so a large tree never
+// freezes the UI. The doctor checks and the clean collection run here too:
+// they read artifact files from disk, which is just as much not the update
+// loop's business.
+func scanCmd(root string) tea.Cmd {
+	return func() tea.Msg {
+		dirs, err := discovery.Scan(root)
+		var findings []doctor.Finding
+		var candidates []clean.Candidate
+		if err == nil {
+			findings = doctor.Check(dirs)
+			candidates = clean.Collect(dirs, findings)
+		}
+		return scanResultMsg{root: root, dirs: dirs, findings: findings, candidates: candidates, err: err}
+	}
+}
+
+// dashModel is the lazygit-style dashboard: a browse list on the left
+// (config dirs, or aggregated skills/plugins/marketplaces, per the active
+// view), a preview panel on the right, and enter to drill in or open the
+// full detail page. The footer doubles as the input line for changing the
+// root ("o").
+type dashModel struct {
+	version  string
+	width    int
+	height   int
+	focus    dashPanel
+	selected int
+	mode     dashMode
+	view     dashView
+
+	// drilled marks the paths view showing the artifacts of one config dir
+	// (the one at drillParent) instead of the config dir list.
+	drilled     bool
+	drillParent int
+
+	// marketDrilled marks the marketplaces view showing the plugin catalog
+	// of one marketplace group (the one at marketParent) instead of the
+	// marketplace list; "i" on a catalog entry installs it.
+	marketDrilled bool
+	marketParent  int
+
+	// cleanDrilled marks the doctor view showing the clean candidates
+	// instead of the findings; "d" on a candidate removes it. It survives
+	// rescans so the list can be cleaned out candidate by candidate.
+	cleanDrilled bool
+
+	// page, when non-nil, is the full-screen detail page on top of the
+	// browse layout.
+	page *pageState
+
+	// picker, when non-nil, is the copy-to-harness picker owning the footer
+	// (mode modePicker), opened by "c" on a skill row.
+	picker *pickerState
+
+	// pending is the mutation waiting in the confirm prompt; busy marks one
+	// running; status is the transient result line shown in the footer until
+	// the next keypress.
+	pending *pendingAction
+	busy    bool
+	status  string
+
+	// pathsOffset is the scroll position of the browse list; it follows the
+	// selection so the selected row is always visible. detailOffset is the
+	// scroll position of the preview panel, moved with j/k while the panel
+	// is focused and reset when the selection changes.
+	pathsOffset  int
+	detailOffset int
+
+	// root is the folder the current results were scanned from; pendingRoot
+	// is the scan in flight ("" when idle). Results for anything other than
+	// pendingRoot are stale and dropped.
+	root        string
+	pendingRoot string
+	dirs        []discovery.ConfigDir
+	scanErr     error
+
+	// The artifact-centric aggregations, the doctor findings and the clean
+	// candidates, recomputed on every scan result.
+	skills     []discovery.SkillGroup
+	plugins    []discovery.PluginGroup
+	markets    []discovery.MarketplaceGroup
+	findings   []doctor.Finding
+	candidates []clean.Candidate
+
+	// The explore view's state: the registry client, the last search, and
+	// the fetched skills of this session, keyed by their registry ref. The
+	// fetched extraction roots are removed when the program exits.
+	reg            registry.Client
+	exploreQuery   string
+	exploreResults []registry.Skill
+	exploreFetched map[string]registry.Fetched
+
+	input    textinput.Model
+	inputFor inputKind
+	inputErr error
+	spin     spinner.Model
+}
+
+// newDash builds the dashboard primed to scan root: the caller schedules the
+// matching scanCmd, so pendingRoot starts set.
+func newDash(version, root string) dashModel {
+	input := textinput.New()
+	input.Placeholder = rootPlaceholder
+	input.Prompt = ""
+
+	spin := spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(spinnerStyle))
+
+	return dashModel{
+		version:        version,
+		focus:          panelPaths,
+		root:           root,
+		pendingRoot:    root,
+		reg:            registry.New(),
+		exploreFetched: make(map[string]registry.Fetched),
+		input:          input,
+		spin:           spin,
+	}
+}
+
+// setSize records the terminal size the layout is computed from. The input
+// never spans the full line: room is reserved next to it so a validation
+// error stays visible instead of being clipped at the terminal edge.
+func (m *dashModel) setSize(width, height int) {
+	m.width, m.height = width, height
+	// The width budget assumes the widest of the footer prompts.
+	m.input.Width = width - lipgloss.Width(searchPrompt) - inputErrorReserve
+	if m.input.Width < minInputWidth {
+		m.input.Width = minInputWidth
+	}
+	m.ensureSelectedVisible()
+}
+
+// panelWidths returns the content widths of the two panels: a 1:2 split of
+// the terminal, minus the columns the two borders eat.
+func (m dashModel) panelWidths() (left, right int) {
+	left = m.width / 3
+	if left < minPanelWidth {
+		left = minPanelWidth
+	}
+	right = m.width - left - 2*panelBorderLines
+	if right < minPanelWidth {
+		right = minPanelWidth
+	}
+	return left, right
+}
+
+// bodyHeight returns the content height of the panels.
+func (m dashModel) bodyHeight() int {
+	h := m.height - dashChromeLines - panelBorderLines
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+// listCapacity returns how many content rows fit in a panel below its title
+// line and the blank line after it.
+func (m dashModel) listCapacity() int {
+	c := m.bodyHeight() - 2
+	if c < 1 {
+		c = 1
+	}
+	return c
+}
+
+// listLen returns the row count of the active browse list.
+func (m dashModel) listLen() int {
+	switch m.view {
+	case viewPathsTab:
+		if m.drilled {
+			return len(m.drillRefs())
+		}
+		return len(m.dirs)
+	case viewSkillsTab:
+		return len(m.skills)
+	case viewPluginsTab:
+		return len(m.plugins)
+	case viewMarketsTab:
+		if m.marketDrilled {
+			return len(m.marketCatalog())
+		}
+		return len(m.markets)
+	case viewExploreTab:
+		return len(m.exploreResults)
+	default:
+		if m.cleanDrilled {
+			return len(m.candidates)
+		}
+		return len(m.findings)
+	}
+}
+
+// marketCatalog returns the plugin names offered by the drilled marketplace
+// group.
+func (m dashModel) marketCatalog() []string {
+	if m.marketParent >= len(m.markets) {
+		return nil
+	}
+	return m.markets[m.marketParent].PluginNames
+}
+
+// isInstalled reports whether a plugin identity ("name@marketplace") appears
+// among the discovered plugins.
+func (m dashModel) isInstalled(key string) bool {
+	for _, g := range m.plugins {
+		if g.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// drillRefs flattens the artifacts of the drilled config dir, skills first,
+// then plugins, then marketplaces.
+func (m dashModel) drillRefs() []artifactRef {
+	if m.drillParent >= len(m.dirs) {
+		return nil
+	}
+	dir := m.dirs[m.drillParent]
+
+	refs := make([]artifactRef, 0, len(dir.Skills)+len(dir.Plugins)+len(dir.Marketplaces))
+	for i := range dir.Skills {
+		refs = append(refs, artifactRef{kind: refSkill, index: i})
+	}
+	for i := range dir.Plugins {
+		refs = append(refs, artifactRef{kind: refPlugin, index: i})
+	}
+	for i := range dir.Marketplaces {
+		refs = append(refs, artifactRef{kind: refMarket, index: i})
+	}
+	return refs
+}
+
+// ensureSelectedVisible scrolls the browse list just enough to keep the
+// selected row inside the visible window, the way every lazy-style TUI
+// follows its cursor.
+func (m *dashModel) ensureSelectedVisible() {
+	capacity := m.listCapacity()
+	if m.selected < m.pathsOffset {
+		m.pathsOffset = m.selected
+	}
+	if m.selected >= m.pathsOffset+capacity {
+		m.pathsOffset = m.selected - capacity + 1
+	}
+	if m.pathsOffset < 0 {
+		m.pathsOffset = 0
+	}
+}
+
+// resetList moves the browse selection back to the top.
+func (m *dashModel) resetList() {
+	m.selected = 0
+	m.pathsOffset = 0
+	m.detailOffset = 0
+}
+
+// scrollDetail moves the preview panel by delta lines, clamped to its
+// content.
+func (m *dashModel) scrollDetail(delta int) {
+	_, right := m.panelWidths()
+	total := len(m.detailLines(right - 2))
+	maxOffset := total - m.listCapacity()
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+
+	m.detailOffset += delta
+	if m.detailOffset > maxOffset {
+		m.detailOffset = maxOffset
+	}
+	if m.detailOffset < 0 {
+		m.detailOffset = 0
+	}
+}
+
+// scrollPage moves the open page by delta lines, clamped to its content.
+func (m *dashModel) scrollPage(delta int) {
+	if m.page == nil {
+		return
+	}
+	total := len(wrapLines(m.page.content, m.pageInnerWidth()))
+	maxOffset := total - m.listCapacity()
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+
+	m.page.offset += delta
+	if m.page.offset > maxOffset {
+		m.page.offset = maxOffset
+	}
+	if m.page.offset < 0 {
+		m.page.offset = 0
+	}
+}
+
+// pageInnerWidth returns the content width of the full-screen page panel.
+func (m dashModel) pageInnerWidth() int {
+	w := m.width - panelBorderLines - 2
+	if w < minPanelWidth {
+		w = minPanelWidth
+	}
+	return w
+}
+
+// Update handles every message the root delegates to the dashboard and
+// returns the updated model plus any command to run.
+func (m dashModel) Update(msg tea.Msg) (dashModel, tea.Cmd) {
+	switch msg := msg.(type) {
+
+	case scanResultMsg:
+		if msg.root != m.pendingRoot {
+			return m, nil
+		}
+		m.pendingRoot = ""
+		m.root = msg.root
+		m.dirs = msg.dirs
+		m.scanErr = msg.err
+		m.skills = discovery.GroupSkills(msg.dirs)
+		m.plugins = discovery.GroupPlugins(msg.dirs)
+		m.markets = discovery.GroupMarketplaces(msg.dirs)
+		m.findings = msg.findings
+		m.candidates = msg.candidates
+		m.drilled = false
+		m.marketDrilled = false
+		m.page = nil
+		// The picker's source and targets belong to the old scan.
+		m.picker = nil
+		if m.mode == modePicker {
+			m.mode = modeNormal
+		}
+		if m.selected >= m.listLen() {
+			m.selected = 0
+		}
+		m.pathsOffset = 0
+		m.detailOffset = 0
+		m.ensureSelectedVisible()
+		return m, nil
+
+	case exploreSearchMsg:
+		return m.applyExploreSearch(msg), nil
+
+	case exploreFetchMsg:
+		return m.applyExploreFetch(msg), nil
+
+	case actionResultMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.status = errorTextStyle.Render("✗ " + msg.err.Error())
+			return m, nil
+		}
+		m.status = itemSelectedStyle.Render("✓ ") + msg.label
+		// The world changed: rescan the current root to refresh every view.
+		m.pendingRoot = m.root
+		return m, tea.Batch(scanCmd(m.root), m.spin.Tick)
+
+	case spinner.TickMsg:
+		if m.pendingRoot == "" && !m.busy {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spin, cmd = m.spin.Update(msg)
+		return m, cmd
+
+	case tea.KeyMsg:
+		switch m.mode {
+		case modeInput:
+			return m.updateInputKey(msg)
+		case modeConfirm:
+			return m.updateConfirmKey(msg)
+		case modePicker:
+			return m.updatePickerKey(msg)
+		}
+		return m.updateNormalKey(msg)
+	}
+
+	// Non-key messages (cursor blinks) keep the input line alive.
+	if m.mode == modeInput {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+// updateNormalKey applies the navigation key map.
+func (m dashModel) updateNormalKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
+	key := msg.String()
+
+	// Any key dismisses the last action's status line.
+	m.status = ""
+
+	// While a mutation runs, only quitting is allowed.
+	if m.busy {
+		if key == "q" {
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	// An open detail page owns j/k/esc until it closes.
+	if m.page != nil {
+		switch key {
+		case "q":
+			return m, tea.Quit
+		case "esc", "backspace":
+			m.page = nil
+		case "j", "down":
+			m.scrollPage(1)
+		case "k", "up":
+			m.scrollPage(-1)
+		}
+		return m, nil
+	}
+
+	switch key {
+	case "q":
+		return m, tea.Quit
+
+	case "esc", "backspace":
+		switch {
+		case m.view == viewPathsTab && m.drilled:
+			m.drilled = false
+			m.resetList()
+			m.selected = m.drillParent
+			m.ensureSelectedVisible()
+		case m.view == viewMarketsTab && m.marketDrilled:
+			m.marketDrilled = false
+			m.resetList()
+			m.selected = m.marketParent
+			m.ensureSelectedVisible()
+		case m.view == viewDoctorTab && m.cleanDrilled:
+			m.cleanDrilled = false
+			m.resetList()
+		}
+
+	case "1", "2", "3", "4", "5", "6":
+		view := dashView(key[0] - '1')
+		if view != m.view {
+			m.view = view
+			m.drilled = false
+			m.marketDrilled = false
+			m.cleanDrilled = false
+			m.focus = panelPaths
+			m.resetList()
+		}
+
+	case "tab", "h", "l", "left", "right":
+		if m.focus == panelPaths {
+			m.focus = panelDetail
+		} else {
+			m.focus = panelPaths
+		}
+
+	case "j", "down":
+		if m.focus == panelPaths {
+			if m.selected < m.listLen()-1 {
+				m.selected++
+				m.detailOffset = 0
+				m.ensureSelectedVisible()
+			}
+		} else {
+			m.scrollDetail(1)
+		}
+
+	case "k", "up":
+		if m.focus == panelPaths {
+			if m.selected > 0 {
+				m.selected--
+				m.detailOffset = 0
+				m.ensureSelectedVisible()
+			}
+		} else {
+			m.scrollDetail(-1)
+		}
+
+	case "enter":
+		if m.view == viewExploreTab {
+			return m.exploreOpen()
+		}
+		return m.openSelected(), nil
+
+	case "d":
+		return m.requestDelete(), nil
+
+	case "t":
+		return m.requestToggle()
+
+	case "i":
+		if m.view == viewExploreTab {
+			return m.requestExploreInstall()
+		}
+		return m.requestInstall()
+
+	case "/":
+		if m.view != viewExploreTab {
+			m.status = itemMutedStyle.Render("search runs in the explore view (6)")
+			return m, nil
+		}
+		m.mode = modeInput
+		m.inputFor = inputExploreQuery
+		m.inputErr = nil
+		m.input.SetValue(m.exploreQuery)
+		m.input.Placeholder = searchPlaceholder
+		m.input.CursorEnd()
+		return m, m.input.Focus()
+
+	case "c":
+		// In the doctor view "c" flips to the clean candidates; everywhere
+		// else it copies the selected skill to another harness.
+		if m.view == viewDoctorTab {
+			if !m.cleanDrilled {
+				m.cleanDrilled = true
+				m.resetList()
+			}
+			return m, nil
+		}
+		return m.requestCopy(), nil
+
+	case "a":
+		if m.view != viewMarketsTab {
+			m.status = itemMutedStyle.Render("marketplaces are added from the marketplaces view (4)")
+			return m, nil
+		}
+		m.mode = modeInput
+		m.inputFor = inputMarketSource
+		m.inputErr = nil
+		m.input.SetValue("")
+		m.input.Placeholder = sourcePlaceholder
+		return m, m.input.Focus()
+
+	case "o":
+		m.mode = modeInput
+		m.inputFor = inputRoot
+		m.inputErr = nil
+		m.input.SetValue(m.root)
+		m.input.Placeholder = rootPlaceholder
+		m.input.CursorEnd()
+		return m, m.input.Focus()
+	}
+
+	return m, nil
+}
+
+// requestDelete resolves what "d" targets in the current view and opens the
+// confirm prompt for it. Group rows are only deletable when they live in
+// exactly one place; otherwise the paths view is where you pick which copy.
+func (m dashModel) requestDelete() dashModel {
+	if m.listLen() == 0 || m.page != nil {
+		return m
+	}
+	if m.view == viewExploreTab {
+		m.status = itemMutedStyle.Render("registry results are installed with i, not deleted")
+		return m
+	}
+	if m.view == viewDoctorTab && !m.cleanDrilled {
+		m.status = itemMutedStyle.Render("findings are informational: press c for the removable ones")
+		return m
+	}
+
+	var action *pendingAction
+	switch m.view {
+	case viewDoctorTab:
+		action = cleanCandidateAction(m.candidates[m.selected])
+
+	case viewPathsTab:
+		if !m.drilled {
+			dir := m.dirs[m.selected]
+			display := m.displayPath(dir.Path)
+			action = &pendingAction{
+				kind:        actionDelete,
+				label:       "deleted " + display,
+				path:        dir.Path,
+				confirmName: display,
+			}
+			break
+		}
+		action = m.drillDeleteAction(m.drillRefs()[m.selected])
+
+	case viewSkillsTab:
+		g := m.skills[m.selected]
+		if len(g.Locations) > 1 {
+			m.status = itemMutedStyle.Render(fmt.Sprintf("%s lives in %d places: delete it from the paths view", g.Name, len(g.Locations)))
+			return m
+		}
+		s := g.Locations[0].Item
+		action = &pendingAction{kind: actionDelete, label: "deleted skill " + s.Name, path: s.Path}
+
+	case viewPluginsTab:
+		g := m.plugins[m.selected]
+		if len(g.Locations) > 1 {
+			m.status = itemMutedStyle.Render(fmt.Sprintf("%s lives in %d places: delete it from the paths view", g.Key, len(g.Locations)))
+			return m
+		}
+		action = pluginDeleteAction(g.Locations[0].Item)
+
+	default:
+		if m.marketDrilled {
+			m.status = itemMutedStyle.Render("catalog entries are installed with i, not deleted")
+			return m
+		}
+		g := m.markets[m.selected]
+		if len(g.Locations) > 1 {
+			m.status = itemMutedStyle.Render(fmt.Sprintf("%s lives in %d places: delete it from the paths view", g.Name, len(g.Locations)))
+			return m
+		}
+		action = marketplaceDeleteAction(g.Locations[0].Item)
+	}
+
+	if action == nil {
+		return m
+	}
+	m.pending = action
+	m.mode = modeConfirm
+	m.inputErr = nil
+	if action.confirmName != "" {
+		m.input.SetValue("")
+		m.input.Placeholder = action.confirmName
+		m.input.Focus()
+	}
+	return m
+}
+
+// requestCopy resolves what "c" copies: a skill of the skills view or of the
+// drilled config dir. It opens the footer picker over every config dir that
+// does not hold the skill yet (plus a fan-out entry when there are several).
+// A drifted group is refused: which copy to propagate is exactly what the
+// paths view disambiguates.
+func (m dashModel) requestCopy() dashModel {
+	if m.listLen() == 0 || m.page != nil {
+		return m
+	}
+
+	var src discovery.Skill
+	switch {
+	case m.view == viewSkillsTab:
+		g := m.skills[m.selected]
+		if g.Drift == discovery.DriftDrifted {
+			m.status = itemMutedStyle.Render(fmt.Sprintf("%s drifted across its %d copies: copy a specific one from the paths view", g.Name, len(g.Locations)))
+			return m
+		}
+		src = g.Locations[0].Item
+
+	case m.view == viewPathsTab && m.drilled:
+		ref := m.drillRefs()[m.selected]
+		if ref.kind != refSkill {
+			m.status = itemMutedStyle.Render("only skills are portable across harnesses")
+			return m
+		}
+		src = m.dirs[m.drillParent].Skills[ref.index]
+
+	default:
+		m.status = itemMutedStyle.Render("copy works on skill rows: the skills view (2) or a drilled config dir")
+		return m
+	}
+
+	targets := m.copyTargets(src.Name)
+	if len(targets) == 0 {
+		if len(m.dirs) <= 1 {
+			m.status = itemMutedStyle.Render("no other config dir to copy into")
+		} else {
+			m.status = itemMutedStyle.Render("every config dir already has " + src.Name)
+		}
+		return m
+	}
+	if len(targets) > 1 {
+		var all []string
+		for _, t := range targets {
+			all = append(all, t.dirs...)
+		}
+		targets = append(targets, pickerTarget{label: fmt.Sprintf("all %d config dirs", len(all)), dirs: all})
+	}
+
+	m.picker = &pickerState{skillName: src.Name, srcPath: src.Path, targets: targets}
+	m.mode = modePicker
+	return m
+}
+
+// copyTargets lists the discovered config dirs a skill named name can be
+// copied into: every dir that does not already hold a skill with that name.
+func (m dashModel) copyTargets(name string) []pickerTarget {
+	holds := make(map[string]bool)
+	for _, g := range m.skills {
+		if g.Name != name {
+			continue
+		}
+		for _, loc := range g.Locations {
+			holds[loc.ConfigDir] = true
+		}
+	}
+
+	var targets []pickerTarget
+	for _, dir := range m.dirs {
+		if holds[dir.Path] {
+			continue
+		}
+		targets = append(targets, pickerTarget{label: abbreviateHome(dir.Path), dirs: []string{dir.Path}})
+	}
+	return targets
+}
+
+// updatePickerKey applies the copy-picker key map: j/k (arrows, tab, h/l)
+// cycle through the targets, enter launches the copy, esc cancels.
+func (m dashModel) updatePickerKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
+	if m.picker == nil {
+		m.mode = modeNormal
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc", "backspace":
+		m.picker = nil
+		m.mode = modeNormal
+
+	case "j", "down", "l", "right", "tab":
+		m.picker.index = (m.picker.index + 1) % len(m.picker.targets)
+
+	case "k", "up", "h", "left":
+		m.picker.index = (m.picker.index - 1 + len(m.picker.targets)) % len(m.picker.targets)
+
+	case "enter":
+		picker := *m.picker
+		m.picker = nil
+		m.mode = modeNormal
+		target := picker.targets[picker.index]
+
+		// A registry skill is third-party content: the picked target still
+		// goes through the explicit y/N confirm before anything lands.
+		if picker.fromRegistry {
+			m.pending = &pendingAction{
+				kind:    actionCopySkill,
+				label:   "installed " + picker.skillName + " into " + target.label,
+				path:    picker.srcPath,
+				targets: target.dirs,
+				prompt:  "install " + picker.skillName + " (" + picker.source + ") into " + target.label + "?",
+			}
+			m.mode = modeConfirm
+			m.inputErr = nil
+			return m, nil
+		}
+
+		m.busy = true
+		return m, tea.Batch(runAction(pendingAction{
+			kind:    actionCopySkill,
+			label:   "copied " + picker.skillName + " to " + target.label,
+			path:    picker.srcPath,
+			targets: target.dirs,
+		}), m.spin.Tick)
+	}
+	return m, nil
+}
+
+// drillDeleteAction builds the delete action for one artifact of the
+// drilled config dir.
+func (m dashModel) drillDeleteAction(ref artifactRef) *pendingAction {
+	dir := m.dirs[m.drillParent]
+	switch ref.kind {
+	case refSkill:
+		s := dir.Skills[ref.index]
+		return &pendingAction{kind: actionDelete, label: "deleted skill " + s.Name, path: s.Path}
+	case refPlugin:
+		return pluginDeleteAction(dir.Plugins[ref.index])
+	default:
+		return marketplaceDeleteAction(dir.Marketplaces[ref.index])
+	}
+}
+
+// pluginDeleteAction deletes a folder plugin from disk, but a registry
+// plugin through the claude CLI (uninstall), so the registry and its cache
+// stay consistent.
+func pluginDeleteAction(p discovery.Plugin) *pendingAction {
+	if p.Marketplace != "" {
+		key := p.Name + "@" + p.Marketplace
+		return &pendingAction{kind: actionUninstall, label: "uninstalled " + key, key: key}
+	}
+	return &pendingAction{kind: actionDelete, label: "deleted plugin " + p.Name, path: p.Path}
+}
+
+// marketplaceDeleteAction removes a registry marketplace through the claude
+// CLI, or a folder one from disk.
+func marketplaceDeleteAction(mkt discovery.Marketplace) *pendingAction {
+	if mkt.Source != "" {
+		return &pendingAction{kind: actionRemoveMarket, label: "removed marketplace " + mkt.Name, key: mkt.Name}
+	}
+	return &pendingAction{kind: actionDelete, label: "deleted marketplace " + mkt.Name, path: mkt.Path}
+}
+
+// cleanCandidateAction maps a clean candidate onto the pending action that
+// removes it: registry-owned entries go through the claude CLI, plain
+// folders through the guarded disk delete, exactly like clean.Apply.
+func cleanCandidateAction(c clean.Candidate) *pendingAction {
+	switch c.Action {
+	case clean.ActionUninstall:
+		return &pendingAction{kind: actionUninstall, label: "uninstalled " + c.Arg, key: c.Arg}
+	case clean.ActionRemoveMarketplace:
+		return &pendingAction{kind: actionRemoveMarket, label: "removed marketplace " + c.Arg, key: c.Arg}
+	default:
+		return &pendingAction{kind: actionDelete, label: "removed " + abbreviateHome(c.Path), path: c.Path}
+	}
+}
+
+// requestToggle flips the enabled state of the selected registry plugin
+// (claude CLI). Toggling is not destructive, so it runs without confirm.
+func (m dashModel) requestToggle() (dashModel, tea.Cmd) {
+	if m.listLen() == 0 || m.page != nil {
+		return m, nil
+	}
+
+	var target *discovery.Plugin
+	switch {
+	case m.view == viewPathsTab && m.drilled:
+		ref := m.drillRefs()[m.selected]
+		if ref.kind == refPlugin {
+			target = &m.dirs[m.drillParent].Plugins[ref.index]
+		}
+	case m.view == viewPluginsTab:
+		g := m.plugins[m.selected]
+		if len(g.Locations) == 1 {
+			target = &g.Locations[0].Item
+		} else {
+			m.status = itemMutedStyle.Render(fmt.Sprintf("%s lives in %d places: toggle it from the paths view", g.Key, len(g.Locations)))
+			return m, nil
+		}
+	}
+
+	if target == nil || target.Marketplace == "" {
+		m.status = itemMutedStyle.Render("only installed registry plugins can be toggled")
+		return m, nil
+	}
+
+	key := target.Name + "@" + target.Marketplace
+	verb := "enabled "
+	if target.Enabled {
+		verb = "disabled "
+	}
+	m.busy = true
+	return m, tea.Batch(runAction(pendingAction{
+		kind:   actionToggle,
+		label:  verb + key,
+		key:    key,
+		enable: !target.Enabled,
+	}), m.spin.Tick)
+}
+
+// requestInstall drives "i" in the marketplaces view: on a marketplace group
+// it drills into the plugin catalog, and on a catalog entry it installs that
+// plugin through the claude CLI. Installing is additive, so like the toggle
+// it runs without a confirm prompt.
+func (m dashModel) requestInstall() (dashModel, tea.Cmd) {
+	if m.view != viewMarketsTab || m.page != nil {
+		m.status = itemMutedStyle.Render("install works from the marketplaces view (4)")
+		return m, nil
+	}
+	if m.listLen() == 0 {
+		return m, nil
+	}
+
+	if !m.marketDrilled {
+		g := m.markets[m.selected]
+		if len(g.PluginNames) == 0 {
+			m.status = itemMutedStyle.Render(g.Name + " offers no plugin catalog to install from")
+			return m, nil
+		}
+		m.marketDrilled = true
+		m.marketParent = m.selected
+		m.resetList()
+		return m, nil
+	}
+
+	key := m.marketCatalog()[m.selected] + "@" + m.markets[m.marketParent].Name
+	m.busy = true
+	return m, tea.Batch(runAction(pendingAction{
+		kind:  actionInstall,
+		label: "installed " + key,
+		key:   key,
+	}), m.spin.Tick)
+}
+
+// updateConfirmKey applies the confirm-prompt key map: y/n for normal
+// deletes, the typed name plus enter for whole config dirs.
+func (m dashModel) updateConfirmKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
+	if m.pending == nil {
+		m.mode = modeNormal
+		return m, nil
+	}
+
+	// Whole config dirs require their displayed name typed back.
+	if m.pending.confirmName != "" {
+		switch msg.Type {
+		case tea.KeyEsc:
+			return m.cancelConfirm(), nil
+		case tea.KeyEnter:
+			if strings.TrimSpace(m.input.Value()) == m.pending.confirmName {
+				return m.startAction()
+			}
+			m.inputErr = fmt.Errorf("name does not match")
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.inputErr = nil
+		return m, cmd
+	}
+
+	switch msg.String() {
+	case "y", "Y":
+		return m.startAction()
+	case "n", "N", "esc":
+		return m.cancelConfirm(), nil
+	}
+	return m, nil
+}
+
+// cancelConfirm closes the confirm prompt without acting.
+func (m dashModel) cancelConfirm() dashModel {
+	m.pending = nil
+	m.mode = modeNormal
+	m.inputErr = nil
+	m.input.Blur()
+	m.input.Placeholder = rootPlaceholder
+	return m
+}
+
+// startAction launches the confirmed mutation.
+func (m dashModel) startAction() (dashModel, tea.Cmd) {
+	action := *m.pending
+	m = m.cancelConfirm()
+	m.busy = true
+	return m, tea.Batch(runAction(action), m.spin.Tick)
+}
+
+// openSelected acts on enter: in the paths view it drills into the selected
+// config dir first, then opens the artifact's page; in the artifact views it
+// opens the group's page directly.
+func (m dashModel) openSelected() dashModel {
+	if m.listLen() == 0 {
+		return m
+	}
+
+	switch m.view {
+	case viewPathsTab:
+		if !m.drilled {
+			m.drilled = true
+			m.drillParent = m.selected
+			m.resetList()
+			return m
+		}
+		refs := m.drillRefs()
+		if m.selected < len(refs) {
+			title, content := m.artifactPage(refs[m.selected])
+			m.page = &pageState{title: title, content: content}
+		}
+
+	case viewSkillsTab:
+		g := m.skills[m.selected]
+		m.page = &pageState{title: "skill: " + g.Name, content: skillGroupPreview(g)}
+
+	case viewPluginsTab:
+		g := m.plugins[m.selected]
+		m.page = &pageState{title: "plugin: " + g.Key, content: pluginGroupPreview(g)}
+
+	case viewMarketsTab:
+		if m.marketDrilled {
+			name := m.marketCatalog()[m.selected]
+			m.page = &pageState{title: "catalog: " + name, content: m.catalogEntryPreview(m.selected)}
+			return m
+		}
+		g := m.markets[m.selected]
+		m.page = &pageState{title: "marketplace: " + g.Name, content: marketplaceGroupPreview(g)}
+
+	default:
+		if m.cleanDrilled {
+			c := m.candidates[m.selected]
+			m.page = &pageState{title: "candidate: " + c.Kind, content: candidatePreview(c)}
+			return m
+		}
+		f := m.findings[m.selected]
+		m.page = &pageState{title: "finding: " + f.Check, content: findingPreview(f)}
+	}
+
+	return m
+}
+
+// catalogEntryPreview details one plugin of the drilled marketplace catalog:
+// its identity and whether it is already installed somewhere.
+func (m dashModel) catalogEntryPreview(i int) string {
+	g := m.markets[m.marketParent]
+	name := m.marketCatalog()[i]
+	key := name + "@" + g.Name
+
+	var b strings.Builder
+	b.WriteString(itemSelectedStyle.Render(name) + itemMutedStyle.Render("@"+g.Name) + "\n\n")
+	if m.isInstalled(key) {
+		b.WriteString(itemMutedStyle.Render("state ") + itemSelectedStyle.Render("installed") + "\n")
+	} else {
+		b.WriteString(itemMutedStyle.Render("state not installed") + "\n\n")
+		b.WriteString(itemMutedStyle.Render("press i to install it"))
+	}
+	return b.String()
+}
+
+// artifactPage builds the page of one artifact of the drilled config dir.
+func (m dashModel) artifactPage(ref artifactRef) (title, content string) {
+	dir := m.dirs[m.drillParent]
+	switch ref.kind {
+	case refSkill:
+		s := dir.Skills[ref.index]
+		return "skill: " + s.Name, skillPreview(s)
+	case refPlugin:
+		p := dir.Plugins[ref.index]
+		return "plugin: " + p.Name, pluginPreview(p)
+	default:
+		mkt := dir.Marketplaces[ref.index]
+		return "marketplace: " + mkt.Name, marketplacePreview(mkt)
+	}
+}
+
+// updateInputKey applies the footer-input key map: enter validates and
+// launches the input's purpose (a rescan for the root, a marketplace add for
+// a source), esc cancels, everything else edits the input.
+func (m dashModel) updateInputKey(msg tea.KeyMsg) (dashModel, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		return m.closeInput(), nil
+
+	case tea.KeyEnter:
+		if m.inputFor == inputMarketSource {
+			source := strings.TrimSpace(m.input.Value())
+			if source == "" {
+				m.inputErr = fmt.Errorf("source is required")
+				return m, nil
+			}
+			m = m.closeInput()
+			m.busy = true
+			return m, tea.Batch(runAction(pendingAction{
+				kind:  actionAddMarket,
+				label: "added marketplace " + source,
+				key:   source,
+			}), m.spin.Tick)
+		}
+
+		if m.inputFor == inputExploreQuery {
+			query := strings.TrimSpace(m.input.Value())
+			if query == "" {
+				m.inputErr = fmt.Errorf("query is required")
+				return m, nil
+			}
+			m = m.closeInput()
+			m.busy = true
+			return m, tea.Batch(exploreSearchCmd(m.reg, query), m.spin.Tick)
+		}
+
+		root, err := validateRoot(m.input.Value())
+		if err != nil {
+			m.inputErr = err
+			return m, nil
+		}
+		m = m.closeInput()
+		m.pendingRoot = root
+		m.scanErr = nil
+		m.resetList()
+		return m, tea.Batch(scanCmd(root), m.spin.Tick)
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	m.inputErr = nil
+	return m, cmd
+}
+
+// closeInput leaves the footer input, restoring its idle configuration.
+func (m dashModel) closeInput() dashModel {
+	m.mode = modeNormal
+	m.inputErr = nil
+	m.input.Blur()
+	m.input.Placeholder = rootPlaceholder
+	return m
+}
+
+// validateRoot turns the typed value into a usable scan root: it expands a
+// leading ~, requires an absolute path, and checks it is an existing
+// directory.
+func validateRoot(value string) (string, error) {
+	root := strings.TrimSpace(value)
+	if root == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	if root == "~" || strings.HasPrefix(root, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot resolve ~: %v", err)
+		}
+		root = filepath.Join(home, strings.TrimPrefix(root, "~"))
+	}
+
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("path must be absolute")
+	}
+
+	info, err := os.Stat(root)
+	if err != nil {
+		return "", fmt.Errorf("no such directory")
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("not a directory")
+	}
+
+	return filepath.Clean(root), nil
+}
+
+// Layout constants: two header lines (info + tabs), one footer line, and the
+// two lines a panel border adds around its content.
+const (
+	dashChromeLines  = 3
+	panelBorderLines = 2
+	minPanelWidth    = 20
+	inputPrompt      = " new root ▸ "
+	// sourcePrompt heads the footer input while it collects a marketplace
+	// source ("a" in the marketplaces view); searchPrompt while it collects
+	// a registry query ("/" in the explore view). searchPrompt is the widest
+	// of the three, so the input's width budget is computed against it.
+	sourcePrompt = " add marketplace ▸ "
+	searchPrompt = " search skills.sh ▸ "
+	// The input placeholders: the idle/root one, the marketplace source hint
+	// listing what the claude CLI accepts, and the registry query.
+	rootPlaceholder   = "/absolute/path"
+	sourcePlaceholder = "owner/repo, git url or /path"
+	searchPlaceholder = "skill name or keywords"
+	// inputErrorReserve is the width kept free at the end of the input line
+	// for the longest validation error ("✗ path must be absolute" plus its
+	// separator). The input scrolls horizontally, so capping its window
+	// loses nothing.
+	inputErrorReserve = 34
+	minInputWidth     = 20
+)
+
+// render draws the dashboard. It returns an empty string until the first
+// WindowSizeMsg arrives, since there is no size to lay out against yet.
+func (m dashModel) render() string {
+	if m.width == 0 || m.height == 0 {
+		return ""
+	}
+
+	header := m.viewHeader() + "\n" + m.viewTabs()
+	footer := m.viewFooter()
+
+	if m.page != nil {
+		page := panelFocusedStyle.Width(m.width - panelBorderLines).Height(m.bodyHeight()).
+			MaxHeight(m.bodyHeight() + panelBorderLines).Render(m.viewPage())
+		return lipgloss.JoinVertical(lipgloss.Left, header, page, footer)
+	}
+
+	leftWidth, rightWidth := m.panelWidths()
+	bodyHeight := m.bodyHeight()
+
+	// The inner widths subtract the panel's horizontal padding.
+	left := m.panelStyleFor(panelPaths).Width(leftWidth).Height(bodyHeight).MaxHeight(bodyHeight + panelBorderLines).
+		Render(m.viewList(leftWidth - 2))
+	right := m.panelStyleFor(panelDetail).Width(rightWidth).Height(bodyHeight).MaxHeight(bodyHeight + panelBorderLines).
+		Render(m.viewDetail(rightWidth - 2))
+
+	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+}
+
+// maxRootDisplay caps how much of the root path the header shows; longer
+// paths keep their tail, which is the part that identifies them.
+const maxRootDisplay = 48
+
+// viewHeader renders the top bar: the wordmark, the version, the current
+// root, and the scan-in-flight indicator. It is clipped to the terminal
+// width so a long path can never wrap the layout.
+func (m dashModel) viewHeader() string {
+	header := " " + headerTitleStyle.Render("adev") + " " + headerVersionStyle.Render(m.version) +
+		"  " + headerVersionStyle.Render("root:") + " " + displayRoot(m.root)
+
+	if m.pendingRoot != "" {
+		header += "  " + m.spin.View() + " " + headerVersionStyle.Render("scanning "+displayRoot(m.pendingRoot))
+	}
+
+	return lipgloss.NewStyle().MaxWidth(m.width).Render(header)
+}
+
+// viewTabs renders the view switcher line, the active view highlighted.
+func (m dashModel) viewTabs() string {
+	parts := make([]string, len(viewNames))
+	for i, name := range viewNames {
+		label := fmt.Sprintf("%d %s", i+1, name)
+		if dashView(i) == m.view {
+			parts[i] = headerTitleStyle.Render(label)
+		} else {
+			parts[i] = footerStyle.Render(label)
+		}
+	}
+	return lipgloss.NewStyle().MaxWidth(m.width).Render(" " + strings.Join(parts, footerStyle.Render("  ")))
+}
+
+// displayRoot abbreviates a root path for the header: the home prefix
+// becomes ~, and anything still longer than maxRootDisplay keeps only its
+// tail.
+func displayRoot(path string) string {
+	p := abbreviateHome(path)
+	runes := []rune(p)
+	if len(runes) <= maxRootDisplay {
+		return p
+	}
+	return "…" + string(runes[len(runes)-maxRootDisplay+1:])
+}
+
+// viewFooter renders the key hints, or whichever prompt/status owns the
+// footer line: the root input, the delete confirm, the running-action
+// spinner, or the last action's result.
+func (m dashModel) viewFooter() string {
+	switch {
+	case m.mode == modeInput:
+		prompt := inputPrompt
+		switch m.inputFor {
+		case inputMarketSource:
+			prompt = sourcePrompt
+		case inputExploreQuery:
+			prompt = searchPrompt
+		}
+		line := inputPromptStyle.Render(prompt) + m.input.View()
+		if m.inputErr != nil {
+			line += "  " + errorTextStyle.Render("✗ "+m.inputErr.Error())
+		}
+		return line
+
+	case m.mode == modePicker && m.picker != nil:
+		target := m.picker.targets[m.picker.index]
+		verb, confirm := "copy", "copy"
+		if m.picker.fromRegistry {
+			verb, confirm = "install", "confirm"
+		}
+		return inputPromptStyle.Render(" "+verb+" "+m.picker.skillName+" to ▸ ") +
+			itemSelectedStyle.Render(target.label) +
+			itemMutedStyle.Render(fmt.Sprintf("  %d/%d", m.picker.index+1, len(m.picker.targets))) +
+			footerStyle.Render("  j/k: cycle · enter: "+confirm+" · esc: cancel")
+
+	case m.mode == modeConfirm && m.pending != nil:
+		if m.pending.confirmName != "" {
+			line := errorTextStyle.Render(" type "+m.pending.confirmName+" to delete it all ▸ ") + m.input.View()
+			if m.inputErr != nil {
+				line += "  " + errorTextStyle.Render("✗ "+m.inputErr.Error())
+			}
+			return line
+		}
+		return errorTextStyle.Render(" "+m.pending.question()) + footerStyle.Render(" y/n")
+
+	case m.busy:
+		return " " + m.spin.View() + footerStyle.Render(" working...")
+
+	case m.status != "":
+		return " " + m.status
+	}
+
+	if m.page != nil {
+		return footerStyle.Render(" esc: back · j/k: scroll · q: quit")
+	}
+	if m.view == viewMarketsTab {
+		if m.marketDrilled {
+			return footerStyle.Render(" i: install · enter: open · esc: back · j/k: move · q: quit")
+		}
+		return footerStyle.Render(" enter: open · i: catalog · a: add · d: delete · 1-6: view · o: root · q: quit")
+	}
+	if m.view == viewDoctorTab {
+		if m.cleanDrilled {
+			return footerStyle.Render(" d: remove · enter: open · esc: back · j/k: move · q: quit")
+		}
+		return footerStyle.Render(" enter: open · c: clean · 1-6: view · o: root · j/k: move · q: quit")
+	}
+	if m.view == viewExploreTab {
+		return footerStyle.Render(" /: search · enter: preview · i: install · 1-6: view · j/k: move · q: quit")
+	}
+	if m.view == viewSkillsTab {
+		return footerStyle.Render(" enter: open · c: copy · d: delete · 1-6: view · o: root · j/k: move · q: quit")
+	}
+	if m.view == viewPathsTab && m.drilled {
+		return footerStyle.Render(" enter: open · c: copy · d: delete · t: toggle · esc: back · j/k: move · q: quit")
+	}
+	return footerStyle.Render(" enter: open · d: delete · t: toggle · 1-6: view · o: root · j/k: move · q: quit")
+}
+
+// viewList renders the left panel: the rows of the active view, one line per
+// entry, scrolled to keep the selection visible, with the lazygit-style
+// position counter next to the title.
+func (m dashModel) viewList(inner int) string {
+	var b strings.Builder
+
+	total := m.listLen()
+	title := panelTitleStyle.Render(m.listTitle())
+	if total > 0 {
+		title += " " + itemMutedStyle.Render(fmt.Sprintf("%d/%d", m.selected+1, total))
+	}
+	b.WriteString(title + "\n\n")
+
+	switch {
+	case m.scanErr != nil:
+		b.WriteString(errorTextStyle.Render("scan failed: " + m.scanErr.Error()))
+
+	case total == 0 && m.pendingRoot != "":
+		b.WriteString(itemMutedStyle.Render("scanning..."))
+
+	case total == 0 && m.view == viewDoctorTab && m.cleanDrilled:
+		b.WriteString(itemSelectedStyle.Render("✓ nothing to clean"))
+
+	case total == 0 && m.view == viewDoctorTab:
+		b.WriteString(itemSelectedStyle.Render("✓ no problems found"))
+
+	case total == 0 && m.view == viewExploreTab:
+		if m.exploreQuery != "" {
+			b.WriteString(itemMutedStyle.Render("no skills match " + fmt.Sprintf("%q", m.exploreQuery) + "\npress / to search again"))
+		} else {
+			b.WriteString(itemMutedStyle.Render("press / to search skills.sh"))
+		}
+
+	case total == 0:
+		b.WriteString(itemMutedStyle.Render("nothing found\nunder " + abbreviateHome(m.root)))
+
+	default:
+		end := m.pathsOffset + m.listCapacity()
+		if end > total {
+			end = total
+		}
+		for i := m.pathsOffset; i < end; i++ {
+			prefix, style := "  ", itemStyle
+			if i == m.selected {
+				prefix, style = "▸ ", itemSelectedStyle
+			}
+			b.WriteString(prefix + m.rowLabel(i, inner-lipgloss.Width(prefix), style) + "\n")
+		}
+	}
+
+	return b.String()
+}
+
+// listTitle names the active browse list.
+func (m dashModel) listTitle() string {
+	if m.view == viewPathsTab && m.drilled && m.drillParent < len(m.dirs) {
+		return truncateTail(m.displayPath(m.dirs[m.drillParent].Path), 24)
+	}
+	if m.view == viewMarketsTab && m.marketDrilled && m.marketParent < len(m.markets) {
+		return truncateTail(m.markets[m.marketParent].Name+" catalog", 24)
+	}
+	if m.view == viewDoctorTab && m.cleanDrilled {
+		return "Clean"
+	}
+	name := viewNames[m.view]
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+// rowLabel renders row i of the active view, fitted to budget cells.
+func (m dashModel) rowLabel(i, budget int, style lipgloss.Style) string {
+	switch m.view {
+	case viewPathsTab:
+		if m.drilled {
+			return m.drillRowLabel(i, budget, style)
+		}
+		dir := m.dirs[i]
+		counts := fmt.Sprintf("%ds %dp %dm",
+			len(dir.Skills), len(dir.Plugins), len(dir.Marketplaces))
+		path := truncateTail(m.displayPath(dir.Path), budget-lipgloss.Width(counts)-1)
+		return style.Render(path) + " " + itemMutedStyle.Render(counts)
+
+	case viewSkillsTab:
+		g := m.skills[i]
+		return groupRow(g.Name, len(g.Locations), g.Drift, budget, style)
+
+	case viewPluginsTab:
+		g := m.plugins[i]
+		return groupRow(g.Key, len(g.Locations), g.Drift, budget, style)
+
+	case viewMarketsTab:
+		if m.marketDrilled {
+			return m.catalogRowLabel(i, budget, style)
+		}
+		g := m.markets[i]
+		return groupRow(g.Name, len(g.Locations), g.Drift, budget, style)
+
+	case viewExploreTab:
+		return m.exploreRowLabel(i, budget, style)
+
+	default:
+		if m.cleanDrilled {
+			return m.candidateRowLabel(i, budget, style)
+		}
+		f := m.findings[i]
+		tag, tagStyle := "E", itemErrorStyle
+		if f.Severity == doctor.Warning {
+			tag, tagStyle = "W", itemWarnStyle
+		}
+		return tagStyle.Render(tag+" ") + style.Render(truncateHead(f.Message, budget-2))
+	}
+}
+
+// candidateRowLabel renders one clean candidate: its target (the folder for
+// disk removals, the plugin key or marketplace name for registry ones) plus
+// the reclaimable size when there is one.
+func (m dashModel) candidateRowLabel(i, budget int, style lipgloss.Style) string {
+	if i >= len(m.candidates) {
+		return ""
+	}
+	c := m.candidates[i]
+
+	label := abbreviateHome(c.Path)
+	if c.Action != clean.ActionRemoveDir {
+		label = c.Arg
+	}
+
+	suffix := ""
+	if c.Size > 0 {
+		suffix = " " + itemMutedStyle.Render(clean.HumanSize(c.Size))
+	}
+	return style.Render(truncateTail(label, budget-lipgloss.Width(suffix))) + suffix
+}
+
+// catalogRowLabel renders one plugin of the drilled marketplace catalog,
+// marking the ones already installed.
+func (m dashModel) catalogRowLabel(i, budget int, style lipgloss.Style) string {
+	names := m.marketCatalog()
+	if i >= len(names) {
+		return ""
+	}
+	name := names[i]
+	if m.isInstalled(name + "@" + m.markets[m.marketParent].Name) {
+		mark := "✓"
+		return style.Render(truncateTail(name, budget-lipgloss.Width(mark)-1)) + " " + itemMutedStyle.Render(mark)
+	}
+	return style.Render(truncateTail(name, budget))
+}
+
+// drillRowLabel renders one artifact row of the drilled config dir, tagged
+// by kind.
+func (m dashModel) drillRowLabel(i, budget int, style lipgloss.Style) string {
+	refs := m.drillRefs()
+	if i >= len(refs) {
+		return ""
+	}
+	dir := m.dirs[m.drillParent]
+	ref := refs[i]
+
+	var tag, name string
+	switch ref.kind {
+	case refSkill:
+		tag, name = "s", dir.Skills[ref.index].Name
+	case refPlugin:
+		p := dir.Plugins[ref.index]
+		tag, name = "p", p.Name
+		if p.Marketplace != "" {
+			name += "@" + p.Marketplace
+		}
+	default:
+		tag, name = "m", dir.Marketplaces[ref.index].Name
+	}
+
+	return itemMutedStyle.Render(tag+" ") + style.Render(truncateTail(name, budget-2))
+}
+
+// groupRow renders "name ×N" fitted to budget cells, plus the content badge
+// of a duplicated group: "=" when every copy is identical, "≠" when the
+// copies drifted.
+func groupRow(name string, locations int, drift discovery.DriftState, budget int, style lipgloss.Style) string {
+	suffix := " " + itemMutedStyle.Render(fmt.Sprintf("×%d", locations))
+	if badge := driftBadge(drift); badge != "" {
+		suffix += " " + badge
+	}
+	return style.Render(truncateTail(name, budget-lipgloss.Width(suffix))) + suffix
+}
+
+// viewDetail renders the right panel: the preview of the current selection,
+// windowed by the detail scroll position. When the content overflows, the
+// title shows how far down the window is.
+func (m dashModel) viewDetail(inner int) string {
+	lines := m.detailLines(inner)
+	capacity := m.listCapacity()
+
+	offset := m.detailOffset
+	if offset > len(lines)-capacity {
+		offset = len(lines) - capacity
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + capacity
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	title := panelTitleStyle.Render("Detail")
+	if len(lines) > capacity {
+		title += " " + itemMutedStyle.Render(fmt.Sprintf("%d%%", end*100/len(lines)))
+	}
+
+	return title + "\n\n" + strings.Join(lines[offset:end], "\n")
+}
+
+// viewPage renders the full-screen page content, windowed by its scroll.
+func (m dashModel) viewPage() string {
+	lines := wrapLines(m.page.content, m.pageInnerWidth())
+	capacity := m.listCapacity()
+
+	offset := m.page.offset
+	if offset > len(lines)-capacity {
+		offset = len(lines) - capacity
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + capacity
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	title := panelTitleStyle.Render(m.page.title)
+	if len(lines) > capacity {
+		title += " " + itemMutedStyle.Render(fmt.Sprintf("%d%%", end*100/len(lines)))
+	}
+
+	return title + "\n\n" + strings.Join(lines[offset:end], "\n")
+}
+
+// detailLines builds the preview of the current selection, wrapped at the
+// panel's inner width so windowing operates on real screen lines.
+func (m dashModel) detailLines(inner int) []string {
+	content := itemMutedStyle.Render("nothing selected")
+
+	if m.listLen() > 0 && m.selected < m.listLen() {
+		switch m.view {
+		case viewPathsTab:
+			if m.drilled {
+				_, content = m.artifactPage(m.drillRefs()[m.selected])
+			} else {
+				content = configDirPreview(m.dirs[m.selected])
+			}
+		case viewSkillsTab:
+			content = skillGroupPreview(m.skills[m.selected])
+		case viewPluginsTab:
+			content = pluginGroupPreview(m.plugins[m.selected])
+		case viewMarketsTab:
+			if m.marketDrilled {
+				content = m.catalogEntryPreview(m.selected)
+			} else {
+				content = marketplaceGroupPreview(m.markets[m.selected])
+			}
+		case viewExploreTab:
+			content = m.exploreEntryPreview(m.selected)
+		default:
+			if m.cleanDrilled {
+				content = candidatePreview(m.candidates[m.selected])
+			} else {
+				content = findingPreview(m.findings[m.selected])
+			}
+		}
+	}
+
+	return wrapLines(content, inner)
+}
+
+// wrapLines hard-wraps styled content at width and splits it into lines.
+func wrapLines(content string, width int) []string {
+	wrapped := lipgloss.NewStyle().Width(width).Render(strings.TrimRight(content, "\n"))
+	return strings.Split(wrapped, "\n")
+}
+
+// truncateTail fits s into max cells, keeping the tail: for a path that is
+// the identifying part.
+func truncateTail(s string, max int) string {
+	if max < 1 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return "…" + string(runes[len(runes)-max+1:])
+}
+
+// truncateHead fits s into max cells, keeping the head: for a finding
+// message that is the identifying part.
+func truncateHead(s string, max int) string {
+	if max < 1 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max-1]) + "…"
+}
+
+// displayPath shows a config dir compactly: relative to the scan root when
+// possible, with the home abbreviation as a fallback.
+func (m dashModel) displayPath(path string) string {
+	if rel, err := filepath.Rel(m.root, path); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel
+	}
+	return abbreviateHome(path)
+}
+
+// abbreviateHome replaces the user's home prefix with ~ for display.
+func abbreviateHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home+string(filepath.Separator)) {
+		return "~" + strings.TrimPrefix(path, home)
+	}
+	return path
+}
+
+// panelStyleFor returns the focused or blurred panel frame for p.
+func (m dashModel) panelStyleFor(p dashPanel) lipgloss.Style {
+	if m.focus == p {
+		return panelFocusedStyle
+	}
+	return panelStyle
+}

@@ -6,8 +6,10 @@ package cli
 
 import (
 	"agentic-developer/internal/scaffolding"
+	"agentic-developer/internal/tui"
 	"errors"
 	"fmt"
+	"os"
 )
 
 // Command is a single adev subcommand (new, delete, setup, ...). Each one parses
@@ -26,21 +28,45 @@ type Command interface {
 
 // commands is the registry of every available command, keyed by its name.
 var commands = map[string]Command{
-	"new":     scaffoldCmd{verb: scaffolding.New},
-	"delete":  scaffoldCmd{verb: scaffolding.Delete},
-	"setup":   setupCmd{},
-	"update":  updateCmd{},
-	"version": versionCmd{},
+	"new":         scaffoldCmd{verb: scaffolding.New},
+	"delete":      scaffoldCmd{verb: scaffolding.Delete},
+	"rm":          rmCmd{},
+	"scan":        scanCmd{},
+	"list":        listCmd{},
+	"doctor":      doctorCmd{},
+	"clean":       cleanCmd{},
+	"skill":       skillCmd{},
+	"search":      searchCmd{},
+	"plugin":      pluginCmd{},
+	"marketplace": marketplaceCmd{},
+	"export":      exportCmd{},
+	"sync":        syncCmd{},
+	"setup":       setupCmd{},
+	"update":      updateCmd{},
+	"version":     versionCmd{},
 }
 
 // order fixes the listing order in the help output; map iteration is random.
-var order = []string{"new", "delete", "setup", "update", "version"}
+var order = []string{"new", "delete", "rm", "scan", "list", "doctor", "clean", "skill", "search", "plugin", "marketplace", "export", "sync", "setup", "update", "version"}
 
 // Run is the single entry point of the CLI: it selects the command named by the
 // first arg and hands it the rest. It returns an error so main() can decide the
 // exit code in one place.
+//
+// With no command at all, a terminal caller gets the TUI (the lazygit model:
+// the bare binary IS the interactive tool), while a non-terminal caller (a
+// script or CI) keeps the usage error, so nothing ever blocks on a prompt.
 func Run(argv []string) error {
 	if len(argv) < 2 {
+		if interactiveAvailable() {
+			// The initial discovery root is the caller's working directory,
+			// the same way lazygit opens on the repo you are standing in.
+			root, err := os.Getwd()
+			if err != nil {
+				root = "."
+			}
+			return tui.Run(resolveVersion(), root)
+		}
 		printUsage()
 		return errors.New("no command given")
 	}
@@ -78,4 +104,5 @@ func printUsage() {
 	}
 	fmt.Println()
 	fmt.Println(muted("Run 'adev <command> -h' for command-specific help."))
+	fmt.Println(muted("Run 'adev' with no arguments on a terminal to open the TUI."))
 }

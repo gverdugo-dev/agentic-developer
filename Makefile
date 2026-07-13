@@ -16,6 +16,9 @@ ifeq (run,$(firstword $(MAKECMDGOALS)))
   $(eval $(RUN_ARGS):;@:)
 endif
 
+# e2e is phony because the e2e/ directory exists with that same name.
+.PHONY: run build install e2e release
+
 run: build
 	@go run -ldflags "$(LDFLAGS)" ./cmd/adev $(RUN_ARGS) $(ARGS)
 
@@ -24,6 +27,11 @@ build:
 
 install:
 	@go install -ldflags "$(LDFLAGS)" ./cmd/adev
+
+# e2e drives the TUI through real pseudo-terminals (requires `expect`).
+# Run one test with make e2e E2E=<name>, e.g. make e2e E2E=view_nav.
+e2e:
+	@sh e2e/run.sh $(E2E)
 
 # release cross-compiles every target into dist/, archives each, and writes
 # checksums. The release workflow runs this same target so the build matrix has
